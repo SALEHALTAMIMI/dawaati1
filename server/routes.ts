@@ -6,6 +6,7 @@ import { randomUUID, createHash } from "crypto";
 import { insertUserSchema, insertEventSchema } from "@shared/schema";
 import multer from "multer";
 import * as XLSX from "xlsx";
+import QRCode from "qrcode";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -547,12 +548,133 @@ export async function registerRoutes(
     }
   });
 
-  // QR Download placeholder
-  app.get("/api/events/:id/download-qr", requireRole("event_manager"), async (req, res) => {
+  // Get single guest QR code as image
+  app.get("/api/guests/:id/qr-image", requireAuth, async (req, res) => {
     try {
-      res.status(501).json({ error: "ميزة قيد التطوير" });
+      const guest = await storage.getGuest(req.params.id);
+      if (!guest) {
+        return res.status(404).json({ error: "الضيف غير موجود" });
+      }
+
+      const event = await storage.getEvent(guest.eventId);
+      const qrData = JSON.stringify({
+        id: guest.id,
+        code: guest.qrCode,
+        name: guest.name,
+        event: event?.name,
+      });
+
+      const qrImage = await QRCode.toDataURL(qrData, {
+        width: 300,
+        margin: 2,
+        color: {
+          dark: "#5B21B6",
+          light: "#FFFFFF",
+        },
+      });
+
+      res.json({ qrImage, guest });
     } catch (error) {
-      res.status(500).json({ error: "خطأ في تحميل الأكواد" });
+      res.status(500).json({ error: "خطأ في إنشاء كود QR" });
+    }
+  });
+
+  // Get all guests with QR codes for an event
+  app.get("/api/events/:id/guests-with-qr", requireRole("event_manager"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const event = await storage.getEvent(req.params.id);
+      
+      if (!event || event.eventManagerId !== user.id) {
+        return res.status(403).json({ error: "غير مسموح" });
+      }
+
+      const guests = await storage.getGuestsByEvent(req.params.id);
+      
+      const guestsWithQR = await Promise.all(
+        guests.map(async (guest) => {
+          const qrData = JSON.stringify({
+            id: guest.id,
+            code: guest.qrCode,
+            name: guest.name,
+            event: event.name,
+          });
+          
+          const qrImage = await QRCode.toDataURL(qrData, {
+            width: 200,
+            margin: 1,
+            color: {
+              dark: "#5B21B6",
+              light: "#FFFFFF",
+            },
+          });
+          
+          return { ...guest, qrImage };
+        })
+      );
+
+      res.json(guestsWithQR);
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في إنشاء أكواد QR" });
+    }
+  });
+
+  // Verify QR code (for check-in by scanning)
+  app.post("/api/check-in/verify-qr", requireRole("organizer", "event_manager"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { qrData } = req.body;
+
+      let parsedData;
+      try {
+        parsedData = JSON.parse(qrData);
+      } catch {
+        return res.status(400).json({ status: "invalid", message: "كود غير صالح" });
+      }
+
+      const guest = await storage.getGuest(parsedData.id);
+      if (!guest || guest.qrCode !== parsedData.code) {
+        return res.status(404).json({ status: "invalid", message: "الدعوة غير صالحة" });
+      }
+
+      // Verify organizer access
+      if (user.role === "organizer") {
+        const assignedEvents = await storage.getOrganizerEvents(user.id);
+        if (!assignedEvents.some(e => e.id === guest.eventId)) {
+          return res.status(403).json({ error: "غير مسموح" });
+        }
+      }
+
+      if (guest.isCheckedIn) {
+        const checkedInByUser = guest.checkedInBy
+          ? await storage.getUser(guest.checkedInBy)
+          : null;
+        return res.json({
+          status: "duplicate",
+          guest,
+          message: "تم استخدام هذه الدعوة مسبقاً!",
+          checkedInAt: guest.checkedInAt,
+          checkedInBy: checkedInByUser?.name || "غير معروف",
+        });
+      }
+
+      const updatedGuest = await storage.checkInGuest(guest.id, user.id);
+
+      await storage.createAuditLog({
+        eventId: guest.eventId,
+        userId: user.id,
+        action: "check_in",
+        details: `تم تسجيل حضور: ${guest.name}`,
+        guestId: guest.id,
+      });
+
+      res.json({
+        status: "success",
+        guest: updatedGuest,
+        message: "تم تسجيل الحضور بنجاح",
+      });
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في التحقق من الكود" });
     }
   });
 

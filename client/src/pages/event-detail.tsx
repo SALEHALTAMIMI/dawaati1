@@ -16,10 +16,18 @@ import {
   MapPin,
   BarChart3,
   RefreshCw,
+  Eye,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { DataTable } from "@/components/data-table";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -29,8 +37,42 @@ export default function EventDetailPage() {
   const [, params] = useRoute("/events/:id");
   const eventId = params?.id;
   const [isUploading, setIsUploading] = useState(false);
+  const [selectedGuest, setSelectedGuest] = useState<Guest | null>(null);
+  const [qrImage, setQrImage] = useState<string | null>(null);
+  const [isLoadingQR, setIsLoadingQR] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+
+  const handleViewQR = async (guest: Guest) => {
+    setSelectedGuest(guest);
+    setIsLoadingQR(true);
+    try {
+      const res = await fetch(`/api/guests/${guest.id}/qr-image`, {
+        credentials: "include",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setQrImage(data.qrImage);
+      }
+    } catch {
+      toast({
+        title: "خطأ",
+        description: "فشل في تحميل كود QR",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingQR(false);
+    }
+  };
+
+  const handleDownloadSingleQR = () => {
+    if (qrImage && selectedGuest) {
+      const a = document.createElement("a");
+      a.href = qrImage;
+      a.download = `qr-${selectedGuest.name}.png`;
+      a.click();
+    }
+  };
 
   const { data: event, isLoading: isLoadingEvent } = useQuery<Event>({
     queryKey: ["/api/events", eventId],
@@ -147,6 +189,22 @@ export default function EventDetailPage() {
         >
           {guest.isCheckedIn ? "حاضر" : "لم يحضر"}
         </Badge>
+      ),
+    },
+    {
+      key: "qrCode",
+      header: "كود QR",
+      render: (guest: Guest) => (
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => handleViewQR(guest)}
+          className="text-primary hover:text-primary/80"
+          data-testid={`button-view-qr-${guest.id}`}
+        >
+          <QrCode className="w-4 h-4 ml-1" />
+          عرض
+        </Button>
       ),
     },
   ];
@@ -410,6 +468,58 @@ export default function EventDetailPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* QR Code Modal */}
+      <Dialog open={!!selectedGuest} onOpenChange={() => { setSelectedGuest(null); setQrImage(null); }}>
+        <DialogContent className="glass border-white/10 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white text-xl text-center">
+              كود QR للضيف
+            </DialogTitle>
+          </DialogHeader>
+          {selectedGuest && (
+            <div className="flex flex-col items-center space-y-6 py-4">
+              <div className="text-center">
+                <h3 className="text-xl font-bold text-white">{selectedGuest.name}</h3>
+                {selectedGuest.phone && (
+                  <p className="text-muted-foreground">{selectedGuest.phone}</p>
+                )}
+              </div>
+              
+              <div className="glass-card rounded-2xl p-4 bg-white">
+                {isLoadingQR ? (
+                  <div className="w-[200px] h-[200px] flex items-center justify-center">
+                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                  </div>
+                ) : qrImage ? (
+                  <img 
+                    src={qrImage} 
+                    alt={`QR Code for ${selectedGuest.name}`}
+                    className="w-[200px] h-[200px]"
+                    data-testid="qr-code-image"
+                  />
+                ) : (
+                  <div className="w-[200px] h-[200px] flex items-center justify-center text-muted-foreground">
+                    فشل تحميل الكود
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3">
+                <Button
+                  onClick={handleDownloadSingleQR}
+                  disabled={!qrImage}
+                  className="gradient-primary"
+                  data-testid="button-download-qr"
+                >
+                  <Download className="w-4 h-4 ml-2" />
+                  تحميل الكود
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
