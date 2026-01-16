@@ -11,23 +11,16 @@ import {
   ArrowRight,
   Loader2,
   FileSpreadsheet,
-  QrCode,
   Clock,
   MapPin,
   BarChart3,
   RefreshCw,
-  Eye,
-  X,
+  Copy,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { DataTable } from "@/components/data-table";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -37,40 +30,54 @@ export default function EventDetailPage() {
   const [, params] = useRoute("/events/:id");
   const eventId = params?.id;
   const [isUploading, setIsUploading] = useState(false);
-  const [selectedGuest, setSelectedGuest] = useState<Guest | null>(null);
-  const [qrImage, setQrImage] = useState<string | null>(null);
-  const [isLoadingQR, setIsLoadingQR] = useState(false);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  const handleViewQR = async (guest: Guest) => {
-    setSelectedGuest(guest);
-    setIsLoadingQR(true);
+  const handleCopyCode = async (code: string) => {
     try {
-      const res = await fetch(`/api/guests/${guest.id}/qr-image`, {
-        credentials: "include",
+      await navigator.clipboard.writeText(code);
+      setCopiedCode(code);
+      toast({
+        title: "تم النسخ",
+        description: "تم نسخ كود الدخول",
       });
-      if (res.ok) {
-        const data = await res.json();
-        setQrImage(data.qrImage);
-      }
+      setTimeout(() => setCopiedCode(null), 2000);
     } catch {
       toast({
         title: "خطأ",
-        description: "فشل في تحميل كود QR",
+        description: "فشل نسخ الكود",
         variant: "destructive",
       });
-    } finally {
-      setIsLoadingQR(false);
     }
   };
 
-  const handleDownloadSingleQR = () => {
-    if (qrImage && selectedGuest) {
+  const handleExportExcel = async () => {
+    try {
+      const res = await fetch(`/api/events/${eventId}/export-guests`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "فشل التصدير");
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = qrImage;
-      a.download = `qr-${selectedGuest.name}.png`;
+      a.href = url;
+      a.download = `مدعوين-${event?.name || "event"}.xlsx`;
       a.click();
+      window.URL.revokeObjectURL(url);
+      toast({
+        title: "تم التصدير",
+        description: "تم تحميل ملف Excel بنجاح",
+      });
+    } catch (error: any) {
+      toast({
+        title: "فشل التصدير",
+        description: error.message || "حدث خطأ أثناء تصدير البيانات",
+        variant: "destructive",
+      });
     }
   };
 
@@ -126,28 +133,6 @@ export default function EventDetailPage() {
     }
   };
 
-  const handleDownloadQR = async () => {
-    try {
-      const res = await fetch(`/api/events/${eventId}/download-qr`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Download failed");
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `qr-codes-${event?.name}.zip`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-    } catch {
-      toast({
-        title: "فشل التحميل",
-        description: "حدث خطأ أثناء تحميل أكواد QR",
-        variant: "destructive",
-      });
-    }
-  };
-
   const categoryLabels: Record<string, string> = {
     vip: "VIP",
     regular: "عادي",
@@ -193,18 +178,26 @@ export default function EventDetailPage() {
     },
     {
       key: "qrCode",
-      header: "كود QR",
+      header: "كود الدخول",
       render: (guest: Guest) => (
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => handleViewQR(guest)}
-          className="text-primary hover:text-primary/80"
-          data-testid={`button-view-qr-${guest.id}`}
-        >
-          <QrCode className="w-4 h-4 ml-1" />
-          عرض
-        </Button>
+        <div className="flex items-center gap-2">
+          <code className="bg-white/10 px-2 py-1 rounded text-xs font-mono text-primary">
+            {guest.qrCode}
+          </code>
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => handleCopyCode(guest.qrCode)}
+            className="h-7 w-7 text-muted-foreground hover:text-white"
+            data-testid={`button-copy-code-${guest.id}`}
+          >
+            {copiedCode === guest.qrCode ? (
+              <Check className="w-3 h-3 text-green-500" />
+            ) : (
+              <Copy className="w-3 h-3" />
+            )}
+          </Button>
+        </div>
       ),
     },
   ];
@@ -372,13 +365,14 @@ export default function EventDetailPage() {
               رفع ملف إكسل
             </Button>
             <Button
-              onClick={handleDownloadQR}
+              onClick={handleExportExcel}
               variant="outline"
               className="border-primary/50 text-primary hover:bg-primary/10"
-              data-testid="button-download-qr"
+              disabled={guests.length === 0}
+              data-testid="button-export-excel"
             >
-              <QrCode className="w-5 h-5 ml-2" />
-              تحميل أكواد QR
+              <Download className="w-5 h-5 ml-2" />
+              تصدير Excel مع الأكواد
             </Button>
             <Link href={`/events/${eventId}/add-guest`}>
               <Button
@@ -468,58 +462,6 @@ export default function EventDetailPage() {
           </div>
         </TabsContent>
       </Tabs>
-
-      {/* QR Code Modal */}
-      <Dialog open={!!selectedGuest} onOpenChange={() => { setSelectedGuest(null); setQrImage(null); }}>
-        <DialogContent className="glass border-white/10 sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-white text-xl text-center">
-              كود QR للضيف
-            </DialogTitle>
-          </DialogHeader>
-          {selectedGuest && (
-            <div className="flex flex-col items-center space-y-6 py-4">
-              <div className="text-center">
-                <h3 className="text-xl font-bold text-white">{selectedGuest.name}</h3>
-                {selectedGuest.phone && (
-                  <p className="text-muted-foreground">{selectedGuest.phone}</p>
-                )}
-              </div>
-              
-              <div className="glass-card rounded-2xl p-4 bg-white">
-                {isLoadingQR ? (
-                  <div className="w-[200px] h-[200px] flex items-center justify-center">
-                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                  </div>
-                ) : qrImage ? (
-                  <img 
-                    src={qrImage} 
-                    alt={`QR Code for ${selectedGuest.name}`}
-                    className="w-[200px] h-[200px]"
-                    data-testid="qr-code-image"
-                  />
-                ) : (
-                  <div className="w-[200px] h-[200px] flex items-center justify-center text-muted-foreground">
-                    فشل تحميل الكود
-                  </div>
-                )}
-              </div>
-
-              <div className="flex gap-3">
-                <Button
-                  onClick={handleDownloadSingleQR}
-                  disabled={!qrImage}
-                  className="gradient-primary"
-                  data-testid="button-download-qr"
-                >
-                  <Download className="w-4 h-4 ml-2" />
-                  تحميل الكود
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

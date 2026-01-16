@@ -2,7 +2,19 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import session from "express-session";
 import { storage } from "./storage";
-import { randomUUID, createHash } from "crypto";
+import { randomBytes, createHash } from "crypto";
+
+// Generate a secure, unique 12-character alphanumeric code
+function generateAccessCode(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // Removed confusing chars: 0,O,1,I
+  const bytes = randomBytes(12);
+  let code = "";
+  for (let i = 0; i < 12; i++) {
+    code += chars[bytes[i] % chars.length];
+  }
+  // Format: XXXX-XXXX-XXXX for readability
+  return `${code.slice(0, 4)}-${code.slice(4, 8)}-${code.slice(8, 12)}`;
+}
 import { insertUserSchema, insertEventSchema } from "@shared/schema";
 import multer from "multer";
 import * as XLSX from "xlsx";
@@ -347,7 +359,7 @@ export async function registerRoutes(
         category: ((row["الفئة"] || row["Category"] || "regular").toString().toLowerCase()) as any,
         companions: parseInt(row["عدد المرافقين"] || row["Companions"] || "0") || 0,
         notes: String(row["ملاحظات"] || row["Notes"] || ""),
-        qrCode: randomUUID(),
+        qrCode: generateAccessCode(),
       }));
 
       const createdGuests = await storage.createGuests(guestsToCreate);
@@ -548,39 +560,8 @@ export async function registerRoutes(
     }
   });
 
-  // Get single guest QR code as image
-  app.get("/api/guests/:id/qr-image", requireAuth, async (req, res) => {
-    try {
-      const guest = await storage.getGuest(req.params.id);
-      if (!guest) {
-        return res.status(404).json({ error: "الضيف غير موجود" });
-      }
-
-      const event = await storage.getEvent(guest.eventId);
-      const qrData = JSON.stringify({
-        id: guest.id,
-        code: guest.qrCode,
-        name: guest.name,
-        event: event?.name,
-      });
-
-      const qrImage = await QRCode.toDataURL(qrData, {
-        width: 300,
-        margin: 2,
-        color: {
-          dark: "#5B21B6",
-          light: "#FFFFFF",
-        },
-      });
-
-      res.json({ qrImage, guest });
-    } catch (error) {
-      res.status(500).json({ error: "خطأ في إنشاء كود QR" });
-    }
-  });
-
-  // Get all guests with QR codes for an event
-  app.get("/api/events/:id/guests-with-qr", requireRole("event_manager"), async (req, res) => {
+  // Export guests to Excel with access codes
+  app.get("/api/events/:id/export-guests", requireRole("event_manager"), async (req, res) => {
     try {
       const user = (req as any).user;
       const event = await storage.getEvent(req.params.id);
@@ -590,32 +571,61 @@ export async function registerRoutes(
       }
 
       const guests = await storage.getGuestsByEvent(req.params.id);
-      
-      const guestsWithQR = await Promise.all(
-        guests.map(async (guest) => {
-          const qrData = JSON.stringify({
-            id: guest.id,
-            code: guest.qrCode,
-            name: guest.name,
-            event: event.name,
-          });
-          
-          const qrImage = await QRCode.toDataURL(qrData, {
-            width: 200,
-            margin: 1,
-            color: {
-              dark: "#5B21B6",
-              light: "#FFFFFF",
-            },
-          });
-          
-          return { ...guest, qrImage };
-        })
-      );
 
-      res.json(guestsWithQR);
+      if (guests.length === 0) {
+        return res.status(400).json({ error: "لا يوجد مدعوين للتصدير" });
+      }
+
+      const categoryLabels: Record<string, string> = {
+        vip: "VIP",
+        regular: "عادي",
+        media: "إعلام",
+        sponsor: "راعي",
+      };
+
+      // Prepare data for Excel
+      const excelData = guests.map((guest, index) => ({
+        "#": index + 1,
+        "الاسم": guest.name,
+        "الجوال": guest.phone || "",
+        "الفئة": categoryLabels[guest.category || "regular"],
+        "عدد المرافقين": guest.companions || 0,
+        "ملاحظات": guest.notes || "",
+        "كود الدخول": guest.qrCode,
+        "الحالة": guest.isCheckedIn ? "حاضر" : "لم يحضر",
+      }));
+
+      // Create workbook
+      const workbook = XLSX.utils.book_new();
+      const worksheet = XLSX.utils.json_to_sheet(excelData);
+      
+      // Set column widths
+      worksheet["!cols"] = [
+        { wch: 5 },   // #
+        { wch: 25 },  // الاسم
+        { wch: 15 },  // الجوال
+        { wch: 10 },  // الفئة
+        { wch: 12 },  // عدد المرافقين
+        { wch: 30 },  // ملاحظات
+        { wch: 18 },  // كود الدخول
+        { wch: 12 },  // الحالة
+      ];
+
+      XLSX.utils.book_append_sheet(workbook, worksheet, "المدعوين");
+
+      // Generate buffer
+      const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+
+      // Set headers for file download
+      const filename = encodeURIComponent(`مدعوين-${event.name}.xlsx`);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${filename}`);
+      res.setHeader("Content-Length", buffer.length);
+      
+      res.send(buffer);
     } catch (error) {
-      res.status(500).json({ error: "خطأ في إنشاء أكواد QR" });
+      console.error("Export error:", error);
+      res.status(500).json({ error: "خطأ في تصدير البيانات" });
     }
   });
 
