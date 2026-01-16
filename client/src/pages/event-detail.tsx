@@ -1,0 +1,415 @@
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { motion } from "framer-motion";
+import { useRoute, Link } from "wouter";
+import { useState, useRef } from "react";
+import {
+  Calendar,
+  Users,
+  UserPlus,
+  Upload,
+  Download,
+  ArrowRight,
+  Loader2,
+  FileSpreadsheet,
+  QrCode,
+  Clock,
+  MapPin,
+  BarChart3,
+  RefreshCw,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { DataTable } from "@/components/data-table";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import type { Event, Guest, User } from "@shared/schema";
+
+export default function EventDetailPage() {
+  const [, params] = useRoute("/events/:id");
+  const eventId = params?.id;
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
+
+  const { data: event, isLoading: isLoadingEvent } = useQuery<Event>({
+    queryKey: ["/api/events", eventId],
+    enabled: !!eventId,
+  });
+
+  const { data: guests = [], isLoading: isLoadingGuests } = useQuery<Guest[]>({
+    queryKey: ["/api/events", eventId, "guests"],
+    enabled: !!eventId,
+  });
+
+  const { data: organizers = [] } = useQuery<User[]>({
+    queryKey: ["/api/events", eventId, "organizers"],
+    enabled: !!eventId,
+  });
+
+  const uploadMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`/api/events/${eventId}/upload-guests`, {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Upload failed");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "تم الرفع بنجاح",
+        description: `تم إضافة ${data.count} ضيف`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/events", eventId, "guests"] });
+    },
+    onError: () => {
+      toast({
+        title: "فشل الرفع",
+        description: "تأكد من صيغة الملف الصحيحة",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setIsUploading(true);
+      uploadMutation.mutate(file);
+      setIsUploading(false);
+    }
+  };
+
+  const handleDownloadQR = async () => {
+    try {
+      const res = await fetch(`/api/events/${eventId}/download-qr`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Download failed");
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `qr-codes-${event?.name}.zip`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      toast({
+        title: "فشل التحميل",
+        description: "حدث خطأ أثناء تحميل أكواد QR",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const categoryLabels: Record<string, string> = {
+    vip: "VIP",
+    regular: "عادي",
+    media: "إعلام",
+    sponsor: "راعي",
+  };
+
+  const guestColumns = [
+    { key: "name", header: "الاسم" },
+    { key: "phone", header: "الجوال" },
+    {
+      key: "category",
+      header: "الفئة",
+      render: (guest: Guest) => (
+        <Badge
+          variant="secondary"
+          className={`${
+            guest.category === "vip"
+              ? "bg-yellow-500/20 text-yellow-400"
+              : "bg-white/10 text-white/70"
+          }`}
+        >
+          {categoryLabels[guest.category || "regular"]}
+        </Badge>
+      ),
+    },
+    { key: "companions", header: "المرافقين" },
+    {
+      key: "isCheckedIn",
+      header: "الحالة",
+      render: (guest: Guest) => (
+        <Badge
+          variant="secondary"
+          className={`${
+            guest.isCheckedIn
+              ? "bg-green-500/20 text-green-400"
+              : "bg-gray-500/20 text-gray-400"
+          }`}
+        >
+          {guest.isCheckedIn ? "حاضر" : "لم يحضر"}
+        </Badge>
+      ),
+    },
+  ];
+
+  const checkedInCount = guests.filter((g) => g.isCheckedIn).length;
+
+  if (isLoadingEvent) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!event) {
+    return (
+      <div className="glass-card rounded-2xl p-12 text-center">
+        <p className="text-muted-foreground text-lg">المناسبة غير موجودة</p>
+        <Link href="/events">
+          <Button variant="outline" className="mt-4">
+            <ArrowRight className="w-4 h-4 ml-2" />
+            العودة للمناسبات
+          </Button>
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      <div className="flex items-center gap-4 mb-6">
+        <Link href="/events">
+          <Button variant="ghost" size="icon" className="text-muted-foreground">
+            <ArrowRight className="w-5 h-5" />
+          </Button>
+        </Link>
+        <div>
+          <h1 className="text-3xl font-bold text-white">{event.name}</h1>
+          <div className="flex items-center gap-4 text-muted-foreground mt-1">
+            <div className="flex items-center gap-1">
+              <Calendar className="w-4 h-4" />
+              <span>{new Date(event.date).toLocaleDateString("ar-SA")}</span>
+            </div>
+            {event.location && (
+              <div className="flex items-center gap-1">
+                <MapPin className="w-4 h-4" />
+                <span>{event.location}</span>
+              </div>
+            )}
+            {event.startTime && (
+              <div className="flex items-center gap-1">
+                <Clock className="w-4 h-4" />
+                <span>
+                  {event.startTime} - {event.endTime}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card rounded-2xl p-6"
+        >
+          <div className="flex items-center gap-3 mb-2">
+            <Users className="w-5 h-5 text-primary" />
+            <span className="text-muted-foreground">إجمالي الضيوف</span>
+          </div>
+          <p className="text-3xl font-bold text-white">{guests.length}</p>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="glass-card rounded-2xl p-6"
+        >
+          <div className="flex items-center gap-3 mb-2">
+            <RefreshCw className="w-5 h-5 text-green-500" />
+            <span className="text-muted-foreground">الحاضرون</span>
+          </div>
+          <p className="text-3xl font-bold text-white">{checkedInCount}</p>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="glass-card rounded-2xl p-6"
+        >
+          <div className="flex items-center gap-3 mb-2">
+            <BarChart3 className="w-5 h-5 text-yellow-500" />
+            <span className="text-muted-foreground">نسبة الحضور</span>
+          </div>
+          <p className="text-3xl font-bold text-white">
+            {guests.length > 0
+              ? Math.round((checkedInCount / guests.length) * 100)
+              : 0}
+            %
+          </p>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="glass-card rounded-2xl p-6"
+        >
+          <div className="flex items-center gap-3 mb-2">
+            <UserPlus className="w-5 h-5 text-blue-500" />
+            <span className="text-muted-foreground">فريق العمل</span>
+          </div>
+          <p className="text-3xl font-bold text-white">{organizers.length}</p>
+        </motion.div>
+      </div>
+
+      <Tabs defaultValue="guests" className="w-full">
+        <TabsList className="glass-card p-1 rounded-xl mb-6">
+          <TabsTrigger
+            value="guests"
+            className="rounded-lg data-[state=active]:bg-primary data-[state=active]:text-white"
+          >
+            <Users className="w-4 h-4 ml-2" />
+            المدعوين
+          </TabsTrigger>
+          <TabsTrigger
+            value="team"
+            className="rounded-lg data-[state=active]:bg-primary data-[state=active]:text-white"
+          >
+            <UserPlus className="w-4 h-4 ml-2" />
+            فريق العمل
+          </TabsTrigger>
+          <TabsTrigger
+            value="reports"
+            className="rounded-lg data-[state=active]:bg-primary data-[state=active]:text-white"
+          >
+            <BarChart3 className="w-4 h-4 ml-2" />
+            التقارير
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="guests" className="space-y-6">
+          <div className="flex flex-wrap gap-4">
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+            />
+            <Button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading || uploadMutation.isPending}
+              className="gradient-primary"
+              data-testid="button-upload-excel"
+            >
+              {uploadMutation.isPending ? (
+                <Loader2 className="w-5 h-5 ml-2 animate-spin" />
+              ) : (
+                <Upload className="w-5 h-5 ml-2" />
+              )}
+              رفع ملف إكسل
+            </Button>
+            <Button
+              onClick={handleDownloadQR}
+              variant="outline"
+              className="border-primary/50 text-primary hover:bg-primary/10"
+              data-testid="button-download-qr"
+            >
+              <QrCode className="w-5 h-5 ml-2" />
+              تحميل أكواد QR
+            </Button>
+            <Link href={`/events/${eventId}/add-guest`}>
+              <Button
+                variant="outline"
+                className="border-white/20 text-white hover:bg-white/10"
+              >
+                <UserPlus className="w-5 h-5 ml-2" />
+                إضافة ضيف
+              </Button>
+            </Link>
+          </div>
+
+          <DataTable
+            columns={guestColumns}
+            data={guests}
+            isLoading={isLoadingGuests}
+            emptyMessage="لا يوجد مدعوين حتى الآن"
+          />
+        </TabsContent>
+
+        <TabsContent value="team" className="space-y-6">
+          <div className="flex gap-4">
+            <Link href={`/events/${eventId}/assign-organizers`}>
+              <Button className="gradient-primary" data-testid="button-assign-organizers">
+                <UserPlus className="w-5 h-5 ml-2" />
+                تعيين منظمين
+              </Button>
+            </Link>
+          </div>
+
+          {organizers.length === 0 ? (
+            <div className="glass-card rounded-2xl p-12 text-center">
+              <Users className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+              <p className="text-muted-foreground text-lg">لم يتم تعيين منظمين بعد</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {organizers.map((org) => (
+                <div key={org.id} className="glass-card rounded-2xl p-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center">
+                      <span className="text-white font-bold text-lg">
+                        {org.name.charAt(0)}
+                      </span>
+                    </div>
+                    <div>
+                      <h3 className="text-white font-medium">{org.name}</h3>
+                      <p className="text-muted-foreground text-sm">@{org.username}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="reports" className="space-y-6">
+          <div className="glass-card rounded-2xl p-6">
+            <h3 className="text-xl font-bold text-white mb-4">البث المباشر</h3>
+            <div className="grid grid-cols-2 gap-6">
+              <div className="text-center">
+                <p className="text-5xl font-bold text-green-500">{checkedInCount}</p>
+                <p className="text-muted-foreground mt-2">حاضر</p>
+              </div>
+              <div className="text-center">
+                <p className="text-5xl font-bold text-gray-400">
+                  {guests.length - checkedInCount}
+                </p>
+                <p className="text-muted-foreground mt-2">لم يحضر</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-4">
+            <Button variant="outline" className="border-white/20 text-white">
+              <Download className="w-5 h-5 ml-2" />
+              تقرير الحضور
+            </Button>
+            <Button variant="outline" className="border-white/20 text-white">
+              <Download className="w-5 h-5 ml-2" />
+              تقرير الغياب
+            </Button>
+            <Button variant="outline" className="border-white/20 text-white">
+              <Download className="w-5 h-5 ml-2" />
+              سجل العمليات
+            </Button>
+          </div>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
