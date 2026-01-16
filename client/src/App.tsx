@@ -12,6 +12,7 @@ import DashboardPage from "@/pages/dashboard";
 import EventsPage from "@/pages/events";
 import EventDetailPage from "@/pages/event-detail";
 import NewEventPage from "@/pages/new-event";
+import AssignOrganizersPage from "@/pages/assign-organizers";
 import AdminsPage from "@/pages/admins";
 import EventManagersPage from "@/pages/event-managers";
 import OrganizersPage from "@/pages/organizers";
@@ -38,6 +39,7 @@ function ProtectedRoutes() {
         <Route path="/" component={DashboardPage} />
         <Route path="/events" component={EventsPage} />
         <Route path="/events/new" component={NewEventPage} />
+        <Route path="/events/:id/assign-organizers" component={AssignOrganizersPage} />
         <Route path="/events/:id" component={EventDetailPage} />
         <Route path="/admins" component={AdminsPage} />
         <Route path="/event-managers" component={EventManagersPage} />
