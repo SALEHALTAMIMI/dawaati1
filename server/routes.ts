@@ -378,6 +378,47 @@ export async function registerRoutes(
     }
   });
 
+  // Add single guest
+  app.post("/api/events/:id/guests", requireRole("event_manager"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const event = await storage.getEvent(req.params.id);
+      
+      if (!event || event.eventManagerId !== user.id) {
+        return res.status(403).json({ error: "غير مسموح" });
+      }
+
+      const { name, phone, category, companions, notes } = req.body;
+
+      if (!name || name.trim() === "") {
+        return res.status(400).json({ error: "اسم الضيف مطلوب" });
+      }
+
+      const guest = await storage.createGuest({
+        eventId: req.params.id,
+        name: name.trim(),
+        phone: phone || "",
+        category: category || "regular",
+        companions: companions || 0,
+        notes: notes || "",
+        qrCode: generateAccessCode(),
+      });
+
+      await storage.createAuditLog({
+        eventId: req.params.id,
+        userId: user.id,
+        action: "add_guest",
+        details: `تم إضافة ضيف: ${guest.name}`,
+        guestId: guest.id,
+      });
+
+      res.json(guest);
+    } catch (error) {
+      console.error("Add guest error:", error);
+      res.status(500).json({ error: "خطأ في إضافة الضيف" });
+    }
+  });
+
   app.post("/api/guests/:id/check-in", requireRole("organizer", "event_manager"), async (req, res) => {
     try {
       const user = (req as any).user;
