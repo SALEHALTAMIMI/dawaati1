@@ -81,6 +81,40 @@ export default function EventDetailPage() {
     }
   };
 
+  const handleDownloadReport = async (reportType: "attendance" | "absence" | "audit") => {
+    try {
+      const res = await fetch(`/api/events/${eventId}/reports/${reportType}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "فشل التحميل");
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const reportNames = {
+        attendance: "تقرير-الحضور",
+        absence: "تقرير-الغياب",
+        audit: "سجل-العمليات",
+      };
+      a.download = `${reportNames[reportType]}-${event?.name || "event"}.xlsx`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+      toast({
+        title: "تم التحميل",
+        description: "تم تحميل التقرير بنجاح",
+      });
+    } catch (error: any) {
+      toast({
+        title: "فشل التحميل",
+        description: error.message || "حدث خطأ أثناء تحميل التقرير",
+        variant: "destructive",
+      });
+    }
+  };
+
   const { data: event, isLoading: isLoadingEvent } = useQuery<Event>({
     queryKey: ["/api/events", eventId],
     enabled: !!eventId,
@@ -447,15 +481,30 @@ export default function EventDetailPage() {
           </div>
 
           <div className="flex flex-wrap gap-4">
-            <Button variant="outline" className="border-white/20 text-white">
+            <Button
+              variant="outline"
+              className="border-white/20 text-white"
+              onClick={() => handleDownloadReport("attendance")}
+              data-testid="button-report-attendance"
+            >
               <Download className="w-5 h-5 ml-2" />
               تقرير الحضور
             </Button>
-            <Button variant="outline" className="border-white/20 text-white">
+            <Button
+              variant="outline"
+              className="border-white/20 text-white"
+              onClick={() => handleDownloadReport("absence")}
+              data-testid="button-report-absence"
+            >
               <Download className="w-5 h-5 ml-2" />
               تقرير الغياب
             </Button>
-            <Button variant="outline" className="border-white/20 text-white">
+            <Button
+              variant="outline"
+              className="border-white/20 text-white"
+              onClick={() => handleDownloadReport("audit")}
+              data-testid="button-report-audit"
+            >
               <Download className="w-5 h-5 ml-2" />
               سجل العمليات
             </Button>

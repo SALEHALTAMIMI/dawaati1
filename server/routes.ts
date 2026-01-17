@@ -670,6 +670,109 @@ export async function registerRoutes(
     }
   });
 
+  // Reports download endpoints
+  app.get("/api/events/:id/reports/:type", requireRole("event_manager"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const reportType = req.params.type as "attendance" | "absence" | "audit";
+      const event = await storage.getEvent(req.params.id);
+      
+      if (!event || event.eventManagerId !== user.id) {
+        return res.status(403).json({ error: "غير مسموح" });
+      }
+
+      const categoryLabels: Record<string, string> = {
+        vip: "VIP",
+        regular: "عادي",
+        media: "إعلام",
+        sponsor: "راعي",
+      };
+
+      let excelData: any[] = [];
+      let sheetName = "";
+
+      if (reportType === "attendance" || reportType === "absence") {
+        const guests = await storage.getGuestsByEvent(req.params.id);
+        const filteredGuests = guests.filter(g => 
+          reportType === "attendance" ? g.isCheckedIn : !g.isCheckedIn
+        );
+
+        if (filteredGuests.length === 0) {
+          return res.status(400).json({ 
+            error: reportType === "attendance" 
+              ? "لا يوجد حضور لتصديره" 
+              : "لا يوجد غياب لتصديره" 
+          });
+        }
+
+        excelData = filteredGuests.map((guest, index) => ({
+          "#": index + 1,
+          "الاسم": guest.name,
+          "الجوال": guest.phone || "",
+          "الفئة": categoryLabels[guest.category || "regular"],
+          "عدد المرافقين": guest.companions || 0,
+          "ملاحظات": guest.notes || "",
+          ...(reportType === "attendance" ? {
+            "وقت الحضور": guest.checkedInAt 
+              ? new Date(guest.checkedInAt).toLocaleString("ar-SA")
+              : "",
+          } : {}),
+        }));
+        sheetName = reportType === "attendance" ? "الحضور" : "الغياب";
+      } else if (reportType === "audit") {
+        const logs = await storage.getAuditLogsByEvent(req.params.id);
+
+        if (logs.length === 0) {
+          return res.status(400).json({ error: "لا يوجد سجلات لتصديرها" });
+        }
+
+        const actionLabels: Record<string, string> = {
+          check_in: "تسجيل حضور",
+          upload_guests: "رفع ضيوف",
+          add_guest: "إضافة ضيف",
+          delete_guest: "حذف ضيف",
+          assign_organizer: "تعيين منظم",
+          remove_organizer: "إزالة منظم",
+        };
+
+        excelData = await Promise.all(logs.map(async (log, index) => {
+          const logUser = await storage.getUser(log.userId);
+          return {
+            "#": index + 1,
+            "التاريخ": new Date(log.createdAt).toLocaleString("ar-SA"),
+            "المستخدم": logUser?.name || "غير معروف",
+            "العملية": actionLabels[log.action] || log.action,
+            "التفاصيل": log.details || "",
+          };
+        }));
+        sheetName = "سجل العمليات";
+      } else {
+        return res.status(400).json({ error: "نوع التقرير غير صالح" });
+      }
+
+      const workbook = XLSX.utils.book_new();
+      const worksheet = XLSX.utils.json_to_sheet(excelData);
+      XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+
+      const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+
+      const reportNames: Record<string, string> = {
+        attendance: "تقرير-الحضور",
+        absence: "تقرير-الغياب",
+        audit: "سجل-العمليات",
+      };
+      const filename = encodeURIComponent(`${reportNames[reportType]}-${event.name}.xlsx`);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${filename}`);
+      res.setHeader("Content-Length", buffer.length);
+      
+      res.send(buffer);
+    } catch (error) {
+      console.error("Report error:", error);
+      res.status(500).json({ error: "خطأ في تحميل التقرير" });
+    }
+  });
+
   // Verify QR code (for check-in by scanning)
   app.post("/api/check-in/verify-qr", requireRole("organizer", "event_manager"), async (req, res) => {
     try {
