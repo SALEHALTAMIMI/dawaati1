@@ -1,13 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { QrCode, Search, CheckCircle, XCircle, AlertTriangle, Users, Clock, Wifi, WifiOff, Loader2 } from "lucide-react";
+import { QrCode, Search, CheckCircle, XCircle, AlertTriangle, Users, Clock, Wifi, WifiOff, Loader2, Camera, CameraOff } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Guest, Event } from "@shared/schema";
+import { Html5Qrcode } from "html5-qrcode";
 
 type CheckInResult = {
   status: "success" | "duplicate" | "invalid";
@@ -23,6 +24,9 @@ export function OrganizerDashboard() {
   const [checkInResult, setCheckInResult] = useState<CheckInResult | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [localGuests, setLocalGuests] = useState<Guest[]>([]);
+  const [isScannerActive, setIsScannerActive] = useState(false);
+  const [scannerError, setScannerError] = useState<string | null>(null);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -79,10 +83,89 @@ export function OrganizerDashboard() {
     },
   });
 
+  const checkInByCodeMutation = useMutation({
+    mutationFn: async (code: string) => {
+      const res = await apiRequest("POST", `/api/check-in/code`, { code, eventId: selectedEvent });
+      return res.json();
+    },
+    onSuccess: (data: CheckInResult) => {
+      setCheckInResult(data);
+      queryClient.invalidateQueries({ queryKey: ["/api/events", selectedEvent, "guests"] });
+    },
+    onError: () => {
+      setCheckInResult({
+        status: "invalid",
+        message: "الكود غير صالح أو غير موجود",
+      });
+    },
+  });
+
+  const startScanner = async () => {
+    try {
+      setScannerError(null);
+      const html5QrCode = new Html5Qrcode("qr-reader");
+      scannerRef.current = html5QrCode;
+      
+      await html5QrCode.start(
+        { facingMode: "environment" },
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 250 },
+        },
+        (decodedText) => {
+          checkInByCodeMutation.mutate(decodedText);
+          html5QrCode.pause();
+          setTimeout(() => {
+            if (scannerRef.current) {
+              try {
+                scannerRef.current.resume();
+              } catch (e) {
+                console.log("Scanner resume error:", e);
+              }
+            }
+          }, 3000);
+        },
+        () => {}
+      );
+      setIsScannerActive(true);
+    } catch (err) {
+      console.error("Scanner error:", err);
+      setScannerError("لا يمكن الوصول للكاميرا. تأكد من منح الإذن للكاميرا.");
+      setIsScannerActive(false);
+    }
+  };
+
+  const stopScanner = async () => {
+    if (scannerRef.current) {
+      try {
+        await scannerRef.current.stop();
+        scannerRef.current = null;
+      } catch (e) {
+        console.log("Stop scanner error:", e);
+      }
+    }
+    setIsScannerActive(false);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (scannerRef.current) {
+        scannerRef.current.stop().catch(() => {});
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedEvent && scannerRef.current) {
+      stopScanner();
+    }
+  }, [selectedEvent]);
+
   const filteredGuests = localGuests.filter(
     (guest) =>
       guest.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      guest.phone?.includes(searchQuery)
+      guest.phone?.includes(searchQuery) ||
+      guest.qrCode?.includes(searchQuery.toUpperCase())
   );
 
   const handleCheckIn = (guest: Guest) => {
@@ -170,7 +253,10 @@ export function OrganizerDashboard() {
         </div>
         <Button
           variant="ghost"
-          onClick={() => setSelectedEvent(null)}
+          onClick={() => {
+            stopScanner();
+            setSelectedEvent(null);
+          }}
           className="text-muted-foreground"
         >
           تغيير المناسبة
@@ -192,13 +278,60 @@ export function OrganizerDashboard() {
         </div>
       </div>
 
+      {/* QR Scanner Section */}
+      <div className="glass-card rounded-2xl p-4 overflow-hidden">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold text-white flex items-center gap-2">
+            <Camera className="w-5 h-5" />
+            مسح الكيو آر
+          </h3>
+          <Button
+            onClick={isScannerActive ? stopScanner : startScanner}
+            variant={isScannerActive ? "destructive" : "default"}
+            className={isScannerActive ? "" : "gradient-primary"}
+            data-testid="button-toggle-scanner"
+          >
+            {isScannerActive ? (
+              <>
+                <CameraOff className="w-4 h-4 ml-2" />
+                إيقاف الكاميرا
+              </>
+            ) : (
+              <>
+                <Camera className="w-4 h-4 ml-2" />
+                تشغيل الكاميرا
+              </>
+            )}
+          </Button>
+        </div>
+
+        {scannerError && (
+          <div className="bg-red-500/20 text-red-400 p-4 rounded-xl mb-4 text-center">
+            {scannerError}
+          </div>
+        )}
+
+        <div 
+          id="qr-reader" 
+          className={`w-full rounded-xl overflow-hidden ${isScannerActive ? 'min-h-[300px]' : 'h-0'}`}
+          style={{ transition: 'height 0.3s ease' }}
+        />
+
+        {!isScannerActive && !scannerError && (
+          <div className="bg-white/5 rounded-xl p-8 text-center">
+            <QrCode className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+            <p className="text-muted-foreground">اضغط على تشغيل الكاميرا لمسح كود الضيف</p>
+          </div>
+        )}
+      </div>
+
       {/* Search */}
       <div className="relative">
         <Search className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
         <Input
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="ابحث بالاسم أو رقم الجوال..."
+          placeholder="ابحث بالاسم أو رقم الجوال أو الكود..."
           className="glass-input h-14 pr-12 text-lg rounded-2xl text-white placeholder:text-muted-foreground"
           data-testid="input-search-guest"
         />
@@ -322,7 +455,7 @@ export function OrganizerDashboard() {
                   </div>
                   <div>
                     <h3 className="text-white font-medium">{guest.name}</h3>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <Badge
                         variant="secondary"
                         className={`text-xs ${
@@ -333,11 +466,14 @@ export function OrganizerDashboard() {
                       >
                         {categoryLabels[guest.category || "regular"]}
                       </Badge>
-                      {guest.companions > 0 && (
+                      {(guest.companions ?? 0) > 0 && (
                         <span className="text-muted-foreground text-sm">
                           +{guest.companions} مرافق
                         </span>
                       )}
+                      <span className="text-muted-foreground text-xs font-mono">
+                        {guest.qrCode}
+                      </span>
                     </div>
                   </div>
                 </div>

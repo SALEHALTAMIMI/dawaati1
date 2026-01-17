@@ -926,7 +926,7 @@ export async function registerRoutes(
           const logUser = await storage.getUser(log.userId);
           return {
             "#": index + 1,
-            "التاريخ": new Date(log.createdAt).toLocaleString("ar-SA"),
+            "التاريخ": log.timestamp ? new Date(log.timestamp).toLocaleString("ar-SA") : "",
             "المستخدم": logUser?.name || "غير معروف",
             "العملية": actionLabels[log.action] || log.action,
             "التفاصيل": log.details || "",
@@ -957,6 +957,69 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Report error:", error);
       res.status(500).json({ error: "خطأ في تحميل التقرير" });
+    }
+  });
+
+  // Check-in by text code (QR scanner reads the code directly)
+  app.post("/api/check-in/code", requireRole("organizer", "event_manager"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { code, eventId } = req.body;
+
+      if (!code) {
+        return res.status(400).json({ status: "invalid", message: "الكود مطلوب" });
+      }
+
+      // Find guest by QR code
+      const guest = await storage.getGuestByQrCode(code.toUpperCase());
+      if (!guest) {
+        return res.status(404).json({ status: "invalid", message: "الكود غير صالح أو غير موجود" });
+      }
+
+      // Verify guest belongs to the selected event
+      if (eventId && guest.eventId !== eventId) {
+        return res.status(400).json({ status: "invalid", message: "هذا الكود ليس لهذه المناسبة" });
+      }
+
+      // Verify organizer access
+      if (user.role === "organizer") {
+        const assignedEvents = await storage.getOrganizerEvents(user.id);
+        if (!assignedEvents.some(e => e.id === guest.eventId)) {
+          return res.status(403).json({ error: "غير مسموح" });
+        }
+      }
+
+      if (guest.isCheckedIn) {
+        const checkedInByUser = guest.checkedInBy
+          ? await storage.getUser(guest.checkedInBy)
+          : null;
+        return res.json({
+          status: "duplicate",
+          guest,
+          message: "تم استخدام هذه الدعوة مسبقاً!",
+          checkedInAt: guest.checkedInAt,
+          checkedInBy: checkedInByUser?.name || "غير معروف",
+        });
+      }
+
+      const updatedGuest = await storage.checkInGuest(guest.id, user.id);
+
+      await storage.createAuditLog({
+        eventId: guest.eventId,
+        userId: user.id,
+        action: "check_in",
+        details: `تم تسجيل حضور عبر المسح: ${guest.name}`,
+        guestId: guest.id,
+      });
+
+      res.json({
+        status: "success",
+        guest: updatedGuest,
+        message: "تم تسجيل الحضور بنجاح",
+      });
+    } catch (error) {
+      console.error("Check-in by code error:", error);
+      res.status(500).json({ status: "invalid", message: "خطأ في التحقق من الكود" });
     }
   });
 
