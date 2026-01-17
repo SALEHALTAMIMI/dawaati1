@@ -200,6 +200,97 @@ export async function registerRoutes(
     }
   });
 
+  // Update user
+  app.patch("/api/users/:id", requireAuth, async (req, res) => {
+    try {
+      const currentUser = await storage.getUser(req.session.userId!);
+      if (!currentUser) return res.status(401).json({ error: "غير مصرح" });
+
+      const targetUser = await storage.getUser(req.params.id);
+      if (!targetUser) return res.status(404).json({ error: "المستخدم غير موجود" });
+
+      // Permission check - can only update users you created or subordinates
+      const canUpdate =
+        currentUser.role === "super_admin" ||
+        (currentUser.role === "admin" && targetUser.role === "event_manager") ||
+        (currentUser.role === "event_manager" && targetUser.role === "organizer" && targetUser.createdById === currentUser.id);
+
+      if (!canUpdate) {
+        return res.status(403).json({ error: "غير مسموح" });
+      }
+
+      const { name, eventQuota } = req.body;
+      const updateData: any = {};
+      if (name) updateData.name = name;
+      if (eventQuota !== undefined) updateData.eventQuota = eventQuota;
+
+      // Handle password update if provided
+      if (req.body.password && req.body.password.length >= 6) {
+        updateData.password = hashPassword(req.body.password);
+      }
+
+      const updated = await storage.updateUser(req.params.id, updateData);
+      res.json({ ...updated, password: undefined });
+    } catch (error) {
+      console.error("Update user error:", error);
+      res.status(500).json({ error: "خطأ في تحديث المستخدم" });
+    }
+  });
+
+  // Toggle user active status
+  app.patch("/api/users/:id/toggle-active", requireAuth, async (req, res) => {
+    try {
+      const currentUser = await storage.getUser(req.session.userId!);
+      if (!currentUser) return res.status(401).json({ error: "غير مصرح" });
+
+      const targetUser = await storage.getUser(req.params.id);
+      if (!targetUser) return res.status(404).json({ error: "المستخدم غير موجود" });
+
+      // Permission check
+      const canToggle =
+        currentUser.role === "super_admin" ||
+        (currentUser.role === "admin" && targetUser.role === "event_manager") ||
+        (currentUser.role === "event_manager" && targetUser.role === "organizer" && targetUser.createdById === currentUser.id);
+
+      if (!canToggle) {
+        return res.status(403).json({ error: "غير مسموح" });
+      }
+
+      const updated = await storage.updateUser(req.params.id, {
+        isActive: !targetUser.isActive,
+      });
+      res.json({ ...updated, password: undefined });
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في تغيير حالة المستخدم" });
+    }
+  });
+
+  // Delete user
+  app.delete("/api/users/:id", requireAuth, async (req, res) => {
+    try {
+      const currentUser = await storage.getUser(req.session.userId!);
+      if (!currentUser) return res.status(401).json({ error: "غير مصرح" });
+
+      const targetUser = await storage.getUser(req.params.id);
+      if (!targetUser) return res.status(404).json({ error: "المستخدم غير موجود" });
+
+      // Permission check
+      const canDelete =
+        currentUser.role === "super_admin" ||
+        (currentUser.role === "admin" && targetUser.role === "event_manager") ||
+        (currentUser.role === "event_manager" && targetUser.role === "organizer" && targetUser.createdById === currentUser.id);
+
+      if (!canDelete) {
+        return res.status(403).json({ error: "غير مسموح" });
+      }
+
+      await storage.deleteUser(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في حذف المستخدم" });
+    }
+  });
+
   // Event routes - Event Manager role
   app.get("/api/events", requireAuth, async (req, res) => {
     try {

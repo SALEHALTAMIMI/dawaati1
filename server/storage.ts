@@ -26,6 +26,7 @@ export interface IStorage {
   getUsersByRole(role: string): Promise<User[]>;
   getUsersByCreator(createdById: string): Promise<User[]>;
   updateUser(id: string, data: Partial<InsertUser>): Promise<User | undefined>;
+  deleteUser(id: string): Promise<void>;
 
   // Events
   getEvent(id: string): Promise<Event | undefined>;
@@ -87,6 +88,10 @@ export class DatabaseStorage implements IStorage {
   async updateUser(id: string, data: Partial<InsertUser>): Promise<User | undefined> {
     const [user] = await db.update(users).set(data).where(eq(users.id, id)).returning();
     return user || undefined;
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    await db.delete(users).where(eq(users.id, id));
   }
 
   // Events

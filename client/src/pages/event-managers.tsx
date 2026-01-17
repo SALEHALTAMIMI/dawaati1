@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Users, Plus, Search, Loader2 } from "lucide-react";
+import { Users, Plus, Search, Loader2, Pencil, Trash2, Power, PowerOff } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -13,6 +13,17 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import {
   Form,
   FormControl,
@@ -34,11 +45,19 @@ const userFormSchema = z.object({
   eventQuota: z.number().min(1, "الحد الأدنى هو 1").max(100, "الحد الأقصى هو 100"),
 });
 
+const editFormSchema = z.object({
+  name: z.string().min(1, "الاسم مطلوب"),
+  eventQuota: z.number().min(1, "الحد الأدنى هو 1").max(100, "الحد الأقصى هو 100"),
+  password: z.string().optional(),
+});
+
 type UserFormData = z.infer<typeof userFormSchema>;
+type EditFormData = z.infer<typeof editFormSchema>;
 
 export default function EventManagersPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
   const { toast } = useToast();
 
   const { data: eventManagers = [], isLoading } = useQuery<User[]>({
@@ -52,6 +71,15 @@ export default function EventManagersPage() {
       username: "",
       password: "",
       eventQuota: 5,
+    },
+  });
+
+  const editForm = useForm<EditFormData>({
+    resolver: zodResolver(editFormSchema),
+    defaultValues: {
+      name: "",
+      eventQuota: 5,
+      password: "",
     },
   });
 
@@ -80,6 +108,79 @@ export default function EventManagersPage() {
       });
     },
   });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: EditFormData }) => {
+      const res = await apiRequest("PATCH", `/api/users/${id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "تم التحديث",
+        description: "تم تحديث بيانات مدير المناسبات بنجاح",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/users/event-managers"] });
+      setEditingUser(null);
+      editForm.reset();
+    },
+    onError: () => {
+      toast({
+        title: "فشل التحديث",
+        description: "حدث خطأ أثناء تحديث البيانات",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const toggleActiveMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const res = await apiRequest("PATCH", `/api/users/${userId}/toggle-active`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: data.isActive ? "تم تفعيل الحساب" : "تم تعليق الحساب",
+        description: data.isActive ? "الحساب نشط الآن" : "تم تعليق الحساب",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/users/event-managers"] });
+    },
+    onError: () => {
+      toast({
+        title: "فشلت العملية",
+        description: "حدث خطأ أثناء تغيير حالة الحساب",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      await apiRequest("DELETE", `/api/users/${userId}`);
+    },
+    onSuccess: () => {
+      toast({
+        title: "تم الحذف",
+        description: "تم حذف الحساب بنجاح",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/users/event-managers"] });
+    },
+    onError: () => {
+      toast({
+        title: "فشل الحذف",
+        description: "حدث خطأ أثناء حذف الحساب",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleEdit = (user: User) => {
+    setEditingUser(user);
+    editForm.reset({
+      name: user.name,
+      eventQuota: user.eventQuota || 5,
+      password: "",
+    });
+  };
 
   const filteredManagers = eventManagers.filter((manager) =>
     manager.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -110,8 +211,66 @@ export default function EventManagersPage() {
               : "bg-gray-500/20 text-gray-400"
           }`}
         >
-          {user.isActive ? "نشط" : "غير نشط"}
+          {user.isActive ? "نشط" : "معلق"}
         </Badge>
+      ),
+    },
+    {
+      key: "actions",
+      header: "الإجراءات",
+      render: (user: User) => (
+        <div className="flex items-center gap-1">
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => handleEdit(user)}
+            className="h-8 w-8 text-muted-foreground hover:text-white"
+            data-testid={`button-edit-user-${user.id}`}
+          >
+            <Pencil className="w-4 h-4" />
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => toggleActiveMutation.mutate(user.id)}
+            disabled={toggleActiveMutation.isPending}
+            className={`h-8 w-8 ${user.isActive ? "text-yellow-400 hover:text-yellow-300" : "text-green-400 hover:text-green-300"}`}
+            data-testid={`button-toggle-user-${user.id}`}
+          >
+            {user.isActive ? <PowerOff className="w-4 h-4" /> : <Power className="w-4 h-4" />}
+          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8 text-red-400 hover:text-red-300"
+                data-testid={`button-delete-user-${user.id}`}
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent className="glass border-white/10">
+              <AlertDialogHeader>
+                <AlertDialogTitle className="text-white">حذف الحساب</AlertDialogTitle>
+                <AlertDialogDescription className="text-muted-foreground">
+                  هل أنت متأكد من حذف حساب "{user.name}"؟ لا يمكن التراجع عن هذا الإجراء.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter className="gap-2">
+                <AlertDialogCancel className="border-white/20 text-white hover:bg-white/10">
+                  إلغاء
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => deleteMutation.mutate(user.id)}
+                  className="bg-red-600 hover:bg-red-700"
+                >
+                  حذف
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
       ),
     },
   ];
@@ -125,14 +284,14 @@ export default function EventManagersPage() {
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
-            <Button className="gradient-primary glow-primary" data-testid="button-add-event-manager">
+            <Button className="gradient-primary glow-primary" data-testid="button-add-manager">
               <Plus className="w-5 h-5 ml-2" />
-              إضافة عميل
+              إضافة مدير مناسبات
             </Button>
           </DialogTrigger>
           <DialogContent className="glass border-white/10 sm:max-w-md">
             <DialogHeader>
-              <DialogTitle className="text-white text-xl">إضافة مدير مناسبات</DialogTitle>
+              <DialogTitle className="text-white text-xl">إضافة مدير مناسبات جديد</DialogTitle>
             </DialogHeader>
             <Form {...form}>
               <form
@@ -205,12 +364,12 @@ export default function EventManagersPage() {
                       <FormLabel className="text-white">حصة المناسبات</FormLabel>
                       <FormControl>
                         <Input
-                          {...field}
                           type="number"
-                          min={1}
-                          max={100}
-                          onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
-                          className="glass-input h-12 rounded-xl text-white placeholder:text-muted-foreground"
+                          min="1"
+                          max="100"
+                          {...field}
+                          onChange={(e) => field.onChange(parseInt(e.target.value) || 5)}
+                          className="glass-input h-12 rounded-xl text-white"
                           data-testid="input-manager-quota"
                         />
                       </FormControl>
@@ -238,6 +397,96 @@ export default function EventManagersPage() {
         </Dialog>
       </div>
 
+      <Dialog open={!!editingUser} onOpenChange={(open) => !open && setEditingUser(null)}>
+        <DialogContent className="glass border-white/10 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white text-xl">تعديل مدير المناسبات</DialogTitle>
+          </DialogHeader>
+          <Form {...editForm}>
+            <form
+              onSubmit={editForm.handleSubmit((data) =>
+                editingUser && updateMutation.mutate({ id: editingUser.id, data })
+              )}
+              className="space-y-6"
+            >
+              <FormField
+                control={editForm.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-white">الاسم الكامل</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        className="glass-input h-12 rounded-xl text-white"
+                        data-testid="input-edit-name"
+                      />
+                    </FormControl>
+                    <FormMessage className="text-red-400" />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editForm.control}
+                name="eventQuota"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-white">حصة المناسبات</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        min="1"
+                        max="100"
+                        {...field}
+                        onChange={(e) => field.onChange(parseInt(e.target.value) || 5)}
+                        className="glass-input h-12 rounded-xl text-white"
+                        data-testid="input-edit-quota"
+                      />
+                    </FormControl>
+                    <FormMessage className="text-red-400" />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editForm.control}
+                name="password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-white">كلمة المرور الجديدة (اختياري)</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        type="password"
+                        placeholder="اتركه فارغاً للإبقاء على كلمة المرور الحالية"
+                        className="glass-input h-12 rounded-xl text-white placeholder:text-muted-foreground"
+                        data-testid="input-edit-password"
+                      />
+                    </FormControl>
+                    <FormMessage className="text-red-400" />
+                  </FormItem>
+                )}
+              />
+
+              <Button
+                type="submit"
+                disabled={updateMutation.isPending}
+                className="w-full h-12 gradient-primary"
+                data-testid="button-submit-edit"
+              >
+                {updateMutation.isPending ? (
+                  <Loader2 className="w-5 h-5 animate-spin ml-2" />
+                ) : (
+                  <Pencil className="w-5 h-5 ml-2" />
+                )}
+                حفظ التغييرات
+              </Button>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
       <div className="relative max-w-md">
         <Search className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
         <Input
@@ -253,7 +502,7 @@ export default function EventManagersPage() {
         columns={columns}
         data={filteredManagers}
         isLoading={isLoading}
-        emptyMessage="لا يوجد مديرو مناسبات"
+        emptyMessage="لا يوجد مديري مناسبات"
       />
     </div>
   );
