@@ -1430,7 +1430,9 @@ export async function registerRoutes(
       const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
       
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-      res.setHeader("Content-Disposition", `attachment; filename="${fileName || "report"}.xlsx"`);
+      // Use RFC 5987 encoding for Arabic filenames
+      const safeFileName = encodeURIComponent(fileName || "report");
+      res.setHeader("Content-Disposition", `attachment; filename="report.xlsx"; filename*=UTF-8''${safeFileName}.xlsx`);
       res.send(buffer);
     } catch (error) {
       console.error("Export error:", error);
