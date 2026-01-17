@@ -30,6 +30,7 @@ const menuItems = {
     { icon: UserCog, label: "إدارة المديرين", path: "/admins" },
     { icon: Users, label: "مديرو المناسبات", path: "/event-managers" },
     { icon: Calendar, label: "المناسبات", path: "/events" },
+    { icon: Settings, label: "إعدادات الموقع", path: "/settings" },
   ],
   admin: [
     { icon: LayoutDashboard, label: "لوحة التحكم", path: "/" },

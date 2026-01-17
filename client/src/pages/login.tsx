@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { motion } from "framer-motion";
 import { LogIn, User, Lock, Loader2 } from "lucide-react";
+import { SiWhatsapp, SiInstagram, SiFacebook, SiX, SiLinkedin } from "react-icons/si";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,11 +12,27 @@ import { useAuth } from "@/lib/auth";
 import { loginSchema, type LoginInput } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 
+interface SiteSettings {
+  whatsapp?: string | null;
+  instagram?: string | null;
+  facebook?: string | null;
+  twitter?: string | null;
+  linkedin?: string | null;
+}
+
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
+  const [settings, setSettings] = useState<SiteSettings>({});
   const { login } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+
+  useEffect(() => {
+    fetch("/api/settings/public")
+      .then((res) => res.json())
+      .then((data) => setSettings(data))
+      .catch(() => {});
+  }, []);
 
   const form = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
@@ -24,6 +41,8 @@ export default function LoginPage() {
       password: "",
     },
   });
+
+  const hasSocialLinks = settings.whatsapp || settings.instagram || settings.facebook || settings.twitter || settings.linkedin;
 
   const onSubmit = async (data: LoginInput) => {
     setIsLoading(true);
@@ -162,14 +181,75 @@ export default function LoginPage() {
             </form>
           </Form>
 
-          <motion.p
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.6 }}
-            className="text-center text-muted-foreground text-sm mt-6"
+            className="text-center mt-6"
           >
-            لا يوجد لديك حساب؟ تواصل مع مدير النظام
-          </motion.p>
+            <p className="text-muted-foreground text-sm mb-3">
+              لا يوجد لديك حساب؟ تواصل معنا
+            </p>
+            {hasSocialLinks && (
+              <div className="flex items-center justify-center gap-3">
+                {settings.whatsapp && (
+                  <a
+                    href={settings.whatsapp}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2 rounded-full glass-card hover:bg-white/10 transition-colors"
+                    data-testid="link-whatsapp"
+                  >
+                    <SiWhatsapp className="w-5 h-5 text-green-500" />
+                  </a>
+                )}
+                {settings.instagram && (
+                  <a
+                    href={settings.instagram}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2 rounded-full glass-card hover:bg-white/10 transition-colors"
+                    data-testid="link-instagram"
+                  >
+                    <SiInstagram className="w-5 h-5 text-pink-500" />
+                  </a>
+                )}
+                {settings.facebook && (
+                  <a
+                    href={settings.facebook}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2 rounded-full glass-card hover:bg-white/10 transition-colors"
+                    data-testid="link-facebook"
+                  >
+                    <SiFacebook className="w-5 h-5 text-blue-500" />
+                  </a>
+                )}
+                {settings.twitter && (
+                  <a
+                    href={settings.twitter}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2 rounded-full glass-card hover:bg-white/10 transition-colors"
+                    data-testid="link-twitter"
+                  >
+                    <SiX className="w-5 h-5 text-white" />
+                  </a>
+                )}
+                {settings.linkedin && (
+                  <a
+                    href={settings.linkedin}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2 rounded-full glass-card hover:bg-white/10 transition-colors"
+                    data-testid="link-linkedin"
+                  >
+                    <SiLinkedin className="w-5 h-5 text-blue-600" />
+                  </a>
+                )}
+              </div>
+            )}
+          </motion.div>
         </div>
       </motion.div>
     </div>

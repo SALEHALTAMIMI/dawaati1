@@ -1470,5 +1470,42 @@ export async function registerRoutes(
     }
   });
 
+  // Site Settings - Public endpoint for login page
+  app.get("/api/settings/public", async (req, res) => {
+    try {
+      const settings = await storage.getSiteSettings();
+      res.json(settings || {});
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في جلب الإعدادات" });
+    }
+  });
+
+  // Site Settings - Get (super_admin only)
+  app.get("/api/settings", requireRole("super_admin"), async (req, res) => {
+    try {
+      const settings = await storage.getSiteSettings();
+      res.json(settings || {});
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في جلب الإعدادات" });
+    }
+  });
+
+  // Site Settings - Update (super_admin only)
+  app.put("/api/settings", requireRole("super_admin"), async (req, res) => {
+    try {
+      const { whatsapp, instagram, facebook, twitter, linkedin } = req.body;
+      const settings = await storage.updateSiteSettings({
+        whatsapp: whatsapp || null,
+        instagram: instagram || null,
+        facebook: facebook || null,
+        twitter: twitter || null,
+        linkedin: linkedin || null,
+      });
+      res.json(settings);
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في تحديث الإعدادات" });
+    }
+  });
+
   return httpServer;
 }

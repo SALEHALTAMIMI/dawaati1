@@ -21,6 +21,7 @@ import EventManagersPage from "@/pages/event-managers";
 import OrganizersPage from "@/pages/organizers";
 import StatisticsPage from "@/pages/statistics";
 import ReportsPage from "@/pages/reports";
+import SettingsPage from "@/pages/settings";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoutes() {
@@ -54,6 +55,7 @@ function ProtectedRoutes() {
         <Route path="/organizers" component={OrganizersPage} />
         <Route path="/statistics" component={StatisticsPage} />
         <Route path="/reports" component={ReportsPage} />
+        <Route path="/settings" component={SettingsPage} />
         <Route component={NotFound} />
       </Switch>
     </Layout>
