@@ -8,7 +8,6 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
-import { Layout } from "@/components/layout";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useState, useEffect } from "react";
 
@@ -75,23 +74,20 @@ export default function SettingsPage() {
 
   if (user?.role !== "super_admin") {
     return (
-      <Layout>
-        <div className="flex items-center justify-center h-full" data-testid="settings-unauthorized">
-          <Card className="glass-card border-white/10 text-center p-8">
-            <CardContent>
-              <Settings className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-              <h2 className="text-xl font-bold text-white mb-2" data-testid="text-unauthorized-title">غير مصرح</h2>
-              <p className="text-muted-foreground" data-testid="text-unauthorized-message">هذه الصفحة متاحة لمالك النظام فقط</p>
-            </CardContent>
-          </Card>
-        </div>
-      </Layout>
+      <div className="flex items-center justify-center h-full" data-testid="settings-unauthorized">
+        <Card className="glass-card border-white/10 text-center p-8">
+          <CardContent>
+            <Settings className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+            <h2 className="text-xl font-bold text-white mb-2" data-testid="text-unauthorized-title">غير مصرح</h2>
+            <p className="text-muted-foreground" data-testid="text-unauthorized-message">هذه الصفحة متاحة لمالك النظام فقط</p>
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
   return (
-    <Layout>
-      <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-6 max-w-4xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -216,7 +212,6 @@ export default function SettingsPage() {
             </Card>
           )}
         </motion.div>
-      </div>
-    </Layout>
+    </div>
   );
 }
