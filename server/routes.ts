@@ -1253,9 +1253,55 @@ export async function registerRoutes(
   });
 
   // Export report to Excel (super_admin only)
+  // Security: Server regenerates data instead of trusting client-supplied data
   app.post("/api/reports/export", requireRole("super_admin"), async (req, res) => {
     try {
-      const { reportType, reportData, fileName } = req.body;
+      const { reportType, params, fileName } = req.body;
+      
+      // Parse date filters
+      const startDate = params?.startDate ? new Date(params.startDate) : undefined;
+      const endDate = params?.endDate ? new Date(params.endDate) : undefined;
+      
+      // Regenerate report data on server for security
+      let reportData: any = null;
+      
+      switch (reportType) {
+        case "admin":
+          if (!params?.adminId) {
+            return res.status(400).json({ error: "معرف المدير مطلوب" });
+          }
+          reportData = await storage.getAdminReport(params.adminId, startDate, endDate);
+          if (!reportData) {
+            return res.status(404).json({ error: "المدير غير موجود" });
+          }
+          break;
+        case "eventManager":
+          if (!params?.eventManagerId) {
+            return res.status(400).json({ error: "معرف مدير المناسبة مطلوب" });
+          }
+          reportData = await storage.getEventManagerReport(params.eventManagerId, startDate, endDate);
+          if (!reportData) {
+            return res.status(404).json({ error: "مدير المناسبة غير موجود" });
+          }
+          break;
+        case "events":
+          reportData = await storage.getEventsReport(startDate, endDate, params?.eventId);
+          break;
+        case "guests":
+          if (!params?.eventId) {
+            return res.status(400).json({ error: "معرف المناسبة مطلوب" });
+          }
+          reportData = await storage.getGuestsReport(params.eventId, startDate, endDate, params?.checkedInOnly);
+          if (!reportData) {
+            return res.status(404).json({ error: "المناسبة غير موجودة" });
+          }
+          break;
+        case "audit":
+          reportData = await storage.getAuditReport(startDate, endDate, params?.userId, params?.eventId);
+          break;
+        default:
+          return res.status(400).json({ error: "نوع تقرير غير صالح" });
+      }
       
       let worksheetData: any[] = [];
       

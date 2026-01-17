@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { motion } from "framer-motion";
+import { useLocation } from "wouter";
 import { 
   FileText, 
   Download, 
@@ -13,8 +14,10 @@ import {
   ChevronDown,
   Loader2,
   UserCog,
-  CalendarDays
+  CalendarDays,
+  ShieldAlert
 } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -57,6 +60,8 @@ interface FilterState {
 
 export default function ReportsPage() {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const [, setLocation] = useLocation();
   const [activeReport, setActiveReport] = useState<ReportType>("events");
   const [filters, setFilters] = useState<FilterState>({
     startDate: "",
@@ -68,6 +73,26 @@ export default function ReportsPage() {
   });
   const [reportData, setReportData] = useState<any>(null);
   const [isLoadingReport, setIsLoadingReport] = useState(false);
+
+  if (user?.role !== "super_admin") {
+    return (
+      <div className="min-h-screen p-6 flex items-center justify-center">
+        <Card className="bg-white/10 backdrop-blur-lg border-white/20 max-w-md w-full">
+          <CardContent className="pt-6 text-center">
+            <ShieldAlert className="h-16 w-16 text-red-400 mx-auto mb-4" />
+            <h2 className="text-xl font-bold text-white mb-2">غير مصرح</h2>
+            <p className="text-white/70 mb-4">هذه الصفحة متاحة فقط لمالك النظام</p>
+            <Button
+              onClick={() => setLocation("/")}
+              className="bg-purple-600 hover:bg-purple-700"
+            >
+              العودة للرئيسية
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const { data: adminsList } = useQuery<{ id: string; name: string; username: string }[]>({
     queryKey: ["/api/reports/admins-list"],
@@ -155,13 +180,21 @@ export default function ReportsPage() {
         audit: "تقرير_العمليات",
       };
 
+      // Send params instead of reportData for secure server-side regeneration
       const response = await fetch("/api/reports/export", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           reportType: activeReport,
-          reportData,
+          params: {
+            startDate: filters.startDate || undefined,
+            endDate: filters.endDate || undefined,
+            adminId: filters.adminId || undefined,
+            eventManagerId: filters.eventManagerId || undefined,
+            eventId: filters.eventId || undefined,
+            checkedInOnly: filters.checkedInOnly,
+          },
           fileName: `${reportNames[activeReport]}_${new Date().toISOString().split("T")[0]}`,
         }),
       });
