@@ -9,10 +9,23 @@ A comprehensive Arabic RTL Event Access Management Web Application (SaaS) design
 - **State Management:** TanStack Query
 
 ## User Roles (Hierarchical)
-1. **مالك النظام (Super Admin):** Full system control, manage admins
-2. **مدير النظام (Admin):** Manage Event Managers and their quotas
-3. **مدير المناسبة (Event Manager):** Create events, upload guests, manage organizers
-4. **المنظم (Organizer):** Mobile-optimized check-in, offline-capable
+1. **مالك النظام (Super Admin):** Full system control, manage all users including admins
+2. **مدير النظام (Admin):** Full access to all features - can manage event managers, organizers, all events, guests, check-in, reports, exports (same as super_admin except cannot manage other admins)
+3. **مدير المناسبة (Event Manager):** Create events, upload guests, manage their own organizers (limited to their own events)
+4. **المنظم (Organizer):** Mobile-optimized check-in for assigned events, offline-capable
+
+### Role Permissions Matrix
+| Feature | Super Admin | Admin | Event Manager | Organizer |
+|---------|-------------|-------|---------------|-----------|
+| Manage Admins | ✅ | ❌ | ❌ | ❌ |
+| Manage Event Managers | ✅ | ✅ | ❌ | ❌ |
+| Manage Organizers | ✅ | ✅ | ✅ (own) | ❌ |
+| View All Events | ✅ | ✅ | ❌ | ❌ |
+| Create/Edit Events | ✅ | ✅ | ✅ (own) | ❌ |
+| Manage Guests | ✅ | ✅ | ✅ (own) | ❌ |
+| Check-in Guests | ✅ | ✅ | ✅ (own) | ✅ (assigned) |
+| Export Reports | ✅ | ✅ | ✅ (own) | ❌ |
+| View Audit Logs | ✅ | ✅ | ✅ (own) | ❌ |
 
 ## Key Features
 - Arabic RTL layout with Cairo font

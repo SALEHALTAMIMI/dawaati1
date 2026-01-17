@@ -41,6 +41,24 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+// Role hierarchy: super_admin > admin > event_manager > organizer
+const roleHierarchy: Record<string, number> = {
+  super_admin: 4,
+  admin: 3,
+  event_manager: 2,
+  organizer: 1,
+};
+
+// Check if user has minimum required role level
+function hasMinRole(userRole: string, minRole: string): boolean {
+  return (roleHierarchy[userRole] || 0) >= (roleHierarchy[minRole] || 0);
+}
+
+// Check if user can bypass ownership restrictions (admin and super_admin)
+function canBypassOwnership(userRole: string): boolean {
+  return userRole === "admin" || userRole === "super_admin";
+}
+
 // Role-based access control middleware
 function requireRole(...roles: string[]) {
   return async (req: Request, res: Response, next: NextFunction) => {
@@ -166,14 +184,14 @@ export async function registerRoutes(
 
       const { role } = req.body;
 
-      // Check permissions
+      // Check permissions - admin can create all subordinate roles
       if (role === "admin" && currentUser.role !== "super_admin") {
         return res.status(403).json({ error: "غير مسموح" });
       }
       if (role === "event_manager" && !["super_admin", "admin"].includes(currentUser.role)) {
         return res.status(403).json({ error: "غير مسموح" });
       }
-      if (role === "organizer" && currentUser.role !== "event_manager") {
+      if (role === "organizer" && !["super_admin", "admin", "event_manager"].includes(currentUser.role)) {
         return res.status(403).json({ error: "غير مسموح" });
       }
 
@@ -209,10 +227,10 @@ export async function registerRoutes(
       const targetUser = await storage.getUser(req.params.id);
       if (!targetUser) return res.status(404).json({ error: "المستخدم غير موجود" });
 
-      // Permission check - can only update users you created or subordinates
+      // Permission check - admin can update all subordinate roles
       const canUpdate =
         currentUser.role === "super_admin" ||
-        (currentUser.role === "admin" && targetUser.role === "event_manager") ||
+        (currentUser.role === "admin" && ["event_manager", "organizer"].includes(targetUser.role)) ||
         (currentUser.role === "event_manager" && targetUser.role === "organizer" && targetUser.createdById === currentUser.id);
 
       if (!canUpdate) {
@@ -246,10 +264,10 @@ export async function registerRoutes(
       const targetUser = await storage.getUser(req.params.id);
       if (!targetUser) return res.status(404).json({ error: "المستخدم غير موجود" });
 
-      // Permission check
+      // Permission check - admin can manage all subordinate roles
       const canToggle =
         currentUser.role === "super_admin" ||
-        (currentUser.role === "admin" && targetUser.role === "event_manager") ||
+        (currentUser.role === "admin" && ["event_manager", "organizer"].includes(targetUser.role)) ||
         (currentUser.role === "event_manager" && targetUser.role === "organizer" && targetUser.createdById === currentUser.id);
 
       if (!canToggle) {
@@ -274,10 +292,10 @@ export async function registerRoutes(
       const targetUser = await storage.getUser(req.params.id);
       if (!targetUser) return res.status(404).json({ error: "المستخدم غير موجود" });
 
-      // Permission check
+      // Permission check - admin can manage all subordinate roles
       const canDelete =
         currentUser.role === "super_admin" ||
-        (currentUser.role === "admin" && targetUser.role === "event_manager") ||
+        (currentUser.role === "admin" && ["event_manager", "organizer"].includes(targetUser.role)) ||
         (currentUser.role === "event_manager" && targetUser.role === "organizer" && targetUser.createdById === currentUser.id);
 
       if (!canDelete) {
@@ -321,9 +339,17 @@ export async function registerRoutes(
       const user = await storage.getUser(req.session.userId!);
       if (!user) return res.status(401).json({ error: "غير مصرح" });
 
-      // Check access
-      if (user.role === "event_manager" && event.eventManagerId !== user.id) {
-        return res.status(403).json({ error: "غير مسموح" });
+      // Check access - admin and super_admin can access all events
+      if (!canBypassOwnership(user.role)) {
+        if (user.role === "event_manager" && event.eventManagerId !== user.id) {
+          return res.status(403).json({ error: "غير مسموح" });
+        }
+        if (user.role === "organizer") {
+          const assignedEvents = await storage.getOrganizerEvents(user.id);
+          if (!assignedEvents.some(e => e.id === event.id)) {
+            return res.status(403).json({ error: "غير مسموح" });
+          }
+        }
       }
 
       res.json(event);
@@ -332,7 +358,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/events", requireRole("event_manager"), async (req, res) => {
+  app.post("/api/events", requireRole("event_manager", "admin"), async (req, res) => {
     try {
       const user = (req as any).user;
 
@@ -364,7 +390,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/events/:id", requireRole("event_manager"), async (req, res) => {
+  app.patch("/api/events/:id", requireRole("event_manager", "admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const event = await storage.getEvent(req.params.id);
@@ -373,7 +399,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "المناسبة غير موجودة" });
       }
 
-      if (event.eventManagerId !== user.id) {
+      if (!canBypassOwnership(user.role) && event.eventManagerId !== user.id) {
         return res.status(403).json({ error: "غير مسموح" });
       }
 
@@ -390,7 +416,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/events/:id", requireRole("event_manager"), async (req, res) => {
+  app.delete("/api/events/:id", requireRole("event_manager", "admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const event = await storage.getEvent(req.params.id);
@@ -399,7 +425,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "المناسبة غير موجودة" });
       }
 
-      if (event.eventManagerId !== user.id) {
+      if (!canBypassOwnership(user.role) && event.eventManagerId !== user.id) {
         return res.status(403).json({ error: "غير مسموح" });
       }
 
@@ -419,8 +445,8 @@ export async function registerRoutes(
       const event = await storage.getEvent(req.params.id);
       if (!event) return res.status(404).json({ error: "المناسبة غير موجودة" });
 
-      // Check access
-      if (user.role === "event_manager" && event.eventManagerId !== user.id) {
+      // Check access - admin and super_admin bypass ownership
+      if (!canBypassOwnership(user.role) && user.role === "event_manager" && event.eventManagerId !== user.id) {
         return res.status(403).json({ error: "غير مسموح" });
       }
 
@@ -431,12 +457,15 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/events/:id/upload-guests", requireRole("event_manager"), upload.single("file"), async (req, res) => {
+  app.post("/api/events/:id/upload-guests", requireRole("event_manager", "admin"), upload.single("file"), async (req, res) => {
     try {
       const user = (req as any).user;
       const event = await storage.getEvent(req.params.id);
       
-      if (!event || event.eventManagerId !== user.id) {
+      if (!event) {
+        return res.status(404).json({ error: "المناسبة غير موجودة" });
+      }
+      if (!canBypassOwnership(user.role) && event.eventManagerId !== user.id) {
         return res.status(403).json({ error: "غير مسموح" });
       }
 
@@ -476,12 +505,15 @@ export async function registerRoutes(
   });
 
   // Add single guest
-  app.post("/api/events/:id/guests", requireRole("event_manager"), async (req, res) => {
+  app.post("/api/events/:id/guests", requireRole("event_manager", "admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const event = await storage.getEvent(req.params.id);
       
-      if (!event || event.eventManagerId !== user.id) {
+      if (!event) {
+        return res.status(404).json({ error: "المناسبة غير موجودة" });
+      }
+      if (!canBypassOwnership(user.role) && event.eventManagerId !== user.id) {
         return res.status(403).json({ error: "غير مسموح" });
       }
 
@@ -516,7 +548,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/guests/:id/check-in", requireRole("organizer", "event_manager"), async (req, res) => {
+  app.post("/api/guests/:id/check-in", requireRole("organizer", "event_manager", "admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const guest = await storage.getGuest(req.params.id);
@@ -570,7 +602,7 @@ export async function registerRoutes(
   });
 
   // Get single guest
-  app.get("/api/guests/:id", requireRole("event_manager"), async (req, res) => {
+  app.get("/api/guests/:id", requireRole("event_manager", "admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const guest = await storage.getGuest(req.params.id);
@@ -580,7 +612,10 @@ export async function registerRoutes(
       }
 
       const event = await storage.getEvent(guest.eventId);
-      if (!event || event.eventManagerId !== user.id) {
+      if (!event) {
+        return res.status(404).json({ error: "المناسبة غير موجودة" });
+      }
+      if (!canBypassOwnership(user.role) && event.eventManagerId !== user.id) {
         return res.status(403).json({ error: "غير مسموح" });
       }
 
@@ -591,7 +626,7 @@ export async function registerRoutes(
   });
 
   // Update guest
-  app.patch("/api/guests/:id", requireRole("event_manager"), async (req, res) => {
+  app.patch("/api/guests/:id", requireRole("event_manager", "admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const guest = await storage.getGuest(req.params.id);
@@ -601,7 +636,10 @@ export async function registerRoutes(
       }
 
       const event = await storage.getEvent(guest.eventId);
-      if (!event || event.eventManagerId !== user.id) {
+      if (!event) {
+        return res.status(404).json({ error: "المناسبة غير موجودة" });
+      }
+      if (!canBypassOwnership(user.role) && event.eventManagerId !== user.id) {
         return res.status(403).json({ error: "غير مسموح" });
       }
 
@@ -629,7 +667,7 @@ export async function registerRoutes(
   });
 
   // Delete guest
-  app.delete("/api/guests/:id", requireRole("event_manager"), async (req, res) => {
+  app.delete("/api/guests/:id", requireRole("event_manager", "admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const guest = await storage.getGuest(req.params.id);
@@ -639,7 +677,10 @@ export async function registerRoutes(
       }
 
       const event = await storage.getEvent(guest.eventId);
-      if (!event || event.eventManagerId !== user.id) {
+      if (!event) {
+        return res.status(404).json({ error: "المناسبة غير موجودة" });
+      }
+      if (!canBypassOwnership(user.role) && event.eventManagerId !== user.id) {
         return res.status(403).json({ error: "غير مسموح" });
       }
 
@@ -660,12 +701,16 @@ export async function registerRoutes(
   });
 
   // Organizer events
-  app.get("/api/organizer/events", requireRole("organizer", "event_manager"), async (req, res) => {
+  app.get("/api/organizer/events", requireRole("organizer", "event_manager", "admin"), async (req, res) => {
     try {
       const user = (req as any).user;
 
       if (user.role === "organizer") {
         const events = await storage.getOrganizerEvents(user.id);
+        res.json(events);
+      } else if (canBypassOwnership(user.role)) {
+        // Admin and super_admin see all events
+        const events = await storage.getEvents();
         res.json(events);
       } else {
         const events = await storage.getEventsByManager(user.id);
@@ -685,9 +730,11 @@ export async function registerRoutes(
       const event = await storage.getEvent(req.params.id);
       if (!event) return res.status(404).json({ error: "المناسبة غير موجودة" });
 
-      // Check access - event manager owns event, organizer is assigned, or admin
-      if (user.role === "event_manager" && event.eventManagerId !== user.id) {
-        return res.status(403).json({ error: "غير مسموح" });
+      // Check access - admin/super_admin bypass, event manager owns event, or organizer is assigned
+      if (!canBypassOwnership(user.role)) {
+        if (user.role === "event_manager" && event.eventManagerId !== user.id) {
+          return res.status(403).json({ error: "غير مسموح" });
+        }
       }
       if (user.role === "organizer") {
         const assignedEvents = await storage.getOrganizerEvents(user.id);
@@ -703,12 +750,15 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/events/:id/organizers", requireRole("event_manager"), async (req, res) => {
+  app.post("/api/events/:id/organizers", requireRole("event_manager", "admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const event = await storage.getEvent(req.params.id);
       
-      if (!event || event.eventManagerId !== user.id) {
+      if (!event) {
+        return res.status(404).json({ error: "المناسبة غير موجودة" });
+      }
+      if (!canBypassOwnership(user.role) && event.eventManagerId !== user.id) {
         return res.status(403).json({ error: "غير مسموح" });
       }
 
@@ -723,12 +773,15 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/events/:id/organizers/:organizerId", requireRole("event_manager"), async (req, res) => {
+  app.delete("/api/events/:id/organizers/:organizerId", requireRole("event_manager", "admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const event = await storage.getEvent(req.params.id);
       
-      if (!event || event.eventManagerId !== user.id) {
+      if (!event) {
+        return res.status(404).json({ error: "المناسبة غير موجودة" });
+      }
+      if (!canBypassOwnership(user.role) && event.eventManagerId !== user.id) {
         return res.status(403).json({ error: "غير مسموح" });
       }
 
@@ -778,7 +831,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/stats/event-manager", requireRole("event_manager"), async (req, res) => {
+  app.get("/api/stats/event-manager", requireRole("event_manager", "admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const stats = await storage.getStats("event_manager", user.id);
@@ -789,12 +842,15 @@ export async function registerRoutes(
   });
 
   // Export guests to Excel with access codes
-  app.get("/api/events/:id/export-guests", requireRole("event_manager"), async (req, res) => {
+  app.get("/api/events/:id/export-guests", requireRole("event_manager", "admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const event = await storage.getEvent(req.params.id);
       
-      if (!event || event.eventManagerId !== user.id) {
+      if (!event) {
+        return res.status(404).json({ error: "المناسبة غير موجودة" });
+      }
+      if (!canBypassOwnership(user.role) && event.eventManagerId !== user.id) {
         return res.status(403).json({ error: "غير مسموح" });
       }
 
@@ -858,13 +914,16 @@ export async function registerRoutes(
   });
 
   // Reports download endpoints
-  app.get("/api/events/:id/reports/:type", requireRole("event_manager"), async (req, res) => {
+  app.get("/api/events/:id/reports/:type", requireRole("event_manager", "admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const reportType = req.params.type as "attendance" | "absence" | "audit";
       const event = await storage.getEvent(req.params.id);
       
-      if (!event || event.eventManagerId !== user.id) {
+      if (!event) {
+        return res.status(404).json({ error: "المناسبة غير موجودة" });
+      }
+      if (!canBypassOwnership(user.role) && event.eventManagerId !== user.id) {
         return res.status(403).json({ error: "غير مسموح" });
       }
 
@@ -961,7 +1020,7 @@ export async function registerRoutes(
   });
 
   // Check-in by text code (QR scanner reads the code directly)
-  app.post("/api/check-in/code", requireRole("organizer", "event_manager"), async (req, res) => {
+  app.post("/api/check-in/code", requireRole("organizer", "event_manager", "admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const { code, eventId } = req.body;
@@ -1024,7 +1083,7 @@ export async function registerRoutes(
   });
 
   // Verify QR code (for check-in by scanning)
-  app.post("/api/check-in/verify-qr", requireRole("organizer", "event_manager"), async (req, res) => {
+  app.post("/api/check-in/verify-qr", requireRole("organizer", "event_manager", "admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const { qrData } = req.body;
