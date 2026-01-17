@@ -4,6 +4,7 @@ import {
   guests,
   eventOrganizers,
   auditLogs,
+  siteSettings,
   type User,
   type InsertUser,
   type Event,
@@ -14,6 +15,8 @@ import {
   type InsertEventOrganizer,
   type AuditLog,
   type InsertAuditLog,
+  type SiteSettings,
+  type InsertSiteSettings,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
@@ -67,6 +70,10 @@ export interface IStorage {
   getGuestsReport(eventId: string, startDate?: Date, endDate?: Date, checkedInOnly?: boolean): Promise<any>;
   getAuditReport(startDate?: Date, endDate?: Date, userId?: string, eventId?: string): Promise<any>;
   getAllAuditLogs(startDate?: Date, endDate?: Date): Promise<AuditLog[]>;
+
+  // Site Settings
+  getSiteSettings(): Promise<SiteSettings | undefined>;
+  updateSiteSettings(data: InsertSiteSettings): Promise<SiteSettings>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -771,6 +778,27 @@ export class DatabaseStorage implements IStorage {
     }
 
     return logs;
+  }
+
+  // Site Settings
+  async getSiteSettings(): Promise<SiteSettings | undefined> {
+    const [settings] = await db.select().from(siteSettings).limit(1);
+    return settings;
+  }
+
+  async updateSiteSettings(data: InsertSiteSettings): Promise<SiteSettings> {
+    const existing = await this.getSiteSettings();
+    if (existing) {
+      const [updated] = await db
+        .update(siteSettings)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(siteSettings.id, existing.id))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(siteSettings).values(data).returning();
+      return created;
+    }
   }
 }
 
