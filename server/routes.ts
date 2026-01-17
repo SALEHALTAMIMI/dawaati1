@@ -227,9 +227,9 @@ export async function registerRoutes(
       const targetUser = await storage.getUser(req.params.id);
       if (!targetUser) return res.status(404).json({ error: "المستخدم غير موجود" });
 
-      // Permission check - admin can update all subordinate roles
+      // Permission check - super_admin can manage everyone, admin can manage subordinates
       const canUpdate =
-        currentUser.role === "super_admin" ||
+        (currentUser.role === "super_admin" && targetUser.role !== "super_admin") ||
         (currentUser.role === "admin" && ["event_manager", "organizer"].includes(targetUser.role)) ||
         (currentUser.role === "event_manager" && targetUser.role === "organizer" && targetUser.createdById === currentUser.id);
 
@@ -264,9 +264,14 @@ export async function registerRoutes(
       const targetUser = await storage.getUser(req.params.id);
       if (!targetUser) return res.status(404).json({ error: "المستخدم غير موجود" });
 
-      // Permission check - admin can manage all subordinate roles
+      // Prevent self-disable (lockout protection)
+      if (targetUser.id === currentUser.id) {
+        return res.status(403).json({ error: "لا يمكنك تعطيل حسابك الخاص" });
+      }
+
+      // Permission check - super_admin can toggle anyone except super_admin, admin can toggle subordinates
       const canToggle =
-        currentUser.role === "super_admin" ||
+        (currentUser.role === "super_admin" && targetUser.role !== "super_admin") ||
         (currentUser.role === "admin" && ["event_manager", "organizer"].includes(targetUser.role)) ||
         (currentUser.role === "event_manager" && targetUser.role === "organizer" && targetUser.createdById === currentUser.id);
 
@@ -292,9 +297,14 @@ export async function registerRoutes(
       const targetUser = await storage.getUser(req.params.id);
       if (!targetUser) return res.status(404).json({ error: "المستخدم غير موجود" });
 
-      // Permission check - admin can manage all subordinate roles
+      // Prevent self-delete (lockout protection)
+      if (targetUser.id === currentUser.id) {
+        return res.status(403).json({ error: "لا يمكنك حذف حسابك الخاص" });
+      }
+
+      // Permission check - super_admin can delete anyone except super_admin, admin can delete subordinates
       const canDelete =
-        currentUser.role === "super_admin" ||
+        (currentUser.role === "super_admin" && targetUser.role !== "super_admin") ||
         (currentUser.role === "admin" && ["event_manager", "organizer"].includes(targetUser.role)) ||
         (currentUser.role === "event_manager" && targetUser.role === "organizer" && targetUser.createdById === currentUser.id);
 
@@ -303,7 +313,7 @@ export async function registerRoutes(
       }
 
       await storage.deleteUser(req.params.id);
-      res.json({ success: true });
+      res.json({ success: true, message: "تم حذف المستخدم بنجاح" });
     } catch (error) {
       res.status(500).json({ error: "خطأ في حذف المستخدم" });
     }
@@ -838,6 +848,16 @@ export async function registerRoutes(
       res.json(stats);
     } catch (error) {
       res.status(500).json({ error: "خطأ في جلب الإحصائيات" });
+    }
+  });
+
+  app.get("/api/stats/comprehensive", requireRole("super_admin"), async (req, res) => {
+    try {
+      const stats = await storage.getComprehensiveStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Comprehensive stats error:", error);
+      res.status(500).json({ error: "خطأ في جلب الإحصائيات التفصيلية" });
     }
   });
 

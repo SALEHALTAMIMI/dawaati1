@@ -19,6 +19,7 @@ import EditGuestPage from "@/pages/edit-guest";
 import AdminsPage from "@/pages/admins";
 import EventManagersPage from "@/pages/event-managers";
 import OrganizersPage from "@/pages/organizers";
+import StatisticsPage from "@/pages/statistics";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoutes() {
@@ -50,6 +51,7 @@ function ProtectedRoutes() {
         <Route path="/admins" component={AdminsPage} />
         <Route path="/event-managers" component={EventManagersPage} />
         <Route path="/organizers" component={OrganizersPage} />
+        <Route path="/statistics" component={StatisticsPage} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

@@ -24,11 +24,15 @@ interface LayoutProps {
 const menuItems = {
   super_admin: [
     { icon: LayoutDashboard, label: "لوحة التحكم", path: "/" },
+    { icon: BarChart3, label: "الإحصائيات التفصيلية", path: "/statistics" },
     { icon: UserCog, label: "إدارة المديرين", path: "/admins" },
+    { icon: Users, label: "مديرو المناسبات", path: "/event-managers" },
+    { icon: Calendar, label: "المناسبات", path: "/events" },
   ],
   admin: [
     { icon: LayoutDashboard, label: "لوحة التحكم", path: "/" },
     { icon: Users, label: "مديرو المناسبات", path: "/event-managers" },
+    { icon: Calendar, label: "المناسبات", path: "/events" },
   ],
   event_manager: [
     { icon: LayoutDashboard, label: "لوحة التحكم", path: "/" },

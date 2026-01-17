@@ -58,6 +58,7 @@ export interface IStorage {
 
   // Stats
   getStats(role: string, userId?: string): Promise<Record<string, number>>;
+  getComprehensiveStats(): Promise<any>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -273,6 +274,142 @@ export class DatabaseStorage implements IStorage {
     }
 
     return {};
+  }
+
+  async getComprehensiveStats(): Promise<any> {
+    const allUsers = await db.select().from(users);
+    const allEvents = await db.select().from(events);
+    const allGuests = await db.select().from(guests);
+    const allAssignments = await db.select().from(eventOrganizers);
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const admins = allUsers.filter((u) => u.role === "admin");
+    const eventManagers = allUsers.filter((u) => u.role === "event_manager");
+    const organizers = allUsers.filter((u) => u.role === "organizer");
+
+    const adminStats = admins.map((admin) => {
+      const managersCreatedByAdmin = eventManagers.filter((m) => m.createdById === admin.id);
+      const organizersCreatedByAdmin = organizers.filter((o) => o.createdById === admin.id);
+      return {
+        id: admin.id,
+        name: admin.name,
+        username: admin.username,
+        isActive: admin.isActive,
+        createdAt: admin.createdAt,
+        eventManagersCount: managersCreatedByAdmin.length,
+        organizersCount: organizersCreatedByAdmin.length,
+      };
+    });
+
+    const eventManagerStats = eventManagers.map((manager) => {
+      const managerEvents = allEvents.filter((e) => e.eventManagerId === manager.id);
+      const managerEventIds = managerEvents.map((e) => e.id);
+      const managerGuests = allGuests.filter((g) => managerEventIds.includes(g.eventId));
+      const managerOrganizers = organizers.filter((o) => o.createdById === manager.id);
+      const checkedInGuests = managerGuests.filter((g) => g.isCheckedIn);
+      
+      return {
+        id: manager.id,
+        name: manager.name,
+        username: manager.username,
+        isActive: manager.isActive,
+        createdAt: manager.createdAt,
+        eventsCount: managerEvents.length,
+        activeEventsCount: managerEvents.filter((e) => e.isActive).length,
+        totalGuests: managerGuests.length,
+        checkedInGuests: checkedInGuests.length,
+        organizersCount: managerOrganizers.length,
+        events: managerEvents.map((event) => {
+          const eventGuests = allGuests.filter((g) => g.eventId === event.id);
+          const eventOrgs = allAssignments.filter((a) => a.eventId === event.id);
+          return {
+            id: event.id,
+            name: event.name,
+            date: event.date,
+            location: event.location,
+            isActive: event.isActive,
+            totalGuests: eventGuests.length,
+            checkedIn: eventGuests.filter((g) => g.isCheckedIn).length,
+            organizersCount: eventOrgs.length,
+          };
+        }),
+      };
+    });
+
+    const eventStats = allEvents.map((event) => {
+      const eventGuests = allGuests.filter((g) => g.eventId === event.id);
+      const eventOrgs = allAssignments.filter((a) => a.eventId === event.id);
+      const manager = eventManagers.find((m) => m.id === event.eventManagerId);
+      const checkedIn = eventGuests.filter((g) => g.isCheckedIn);
+      
+      const categoryBreakdown = {
+        vip: eventGuests.filter((g) => g.category === "vip").length,
+        regular: eventGuests.filter((g) => g.category === "regular").length,
+        media: eventGuests.filter((g) => g.category === "media").length,
+        sponsor: eventGuests.filter((g) => g.category === "sponsor").length,
+      };
+
+      return {
+        id: event.id,
+        name: event.name,
+        date: event.date,
+        location: event.location,
+        isActive: event.isActive,
+        createdAt: event.createdAt,
+        managerName: manager?.name || "غير معروف",
+        managerId: event.eventManagerId,
+        totalGuests: eventGuests.length,
+        checkedIn: checkedIn.length,
+        pending: eventGuests.length - checkedIn.length,
+        checkInRate: eventGuests.length > 0 ? Math.round((checkedIn.length / eventGuests.length) * 100) : 0,
+        organizersCount: eventOrgs.length,
+        categoryBreakdown,
+      };
+    });
+
+    const organizerStats = organizers.map((organizer) => {
+      const assignments = allAssignments.filter((a) => a.organizerId === organizer.id);
+      const assignedEventIds = assignments.map((a) => a.eventId);
+      const assignedEvents = allEvents.filter((e) => assignedEventIds.includes(e.id));
+      
+      return {
+        id: organizer.id,
+        name: organizer.name,
+        username: organizer.username,
+        isActive: organizer.isActive,
+        createdAt: organizer.createdAt,
+        assignedEventsCount: assignedEvents.length,
+        events: assignedEvents.map((e) => ({ id: e.id, name: e.name, date: e.date })),
+      };
+    });
+
+    const totalCheckedIn = allGuests.filter((g) => g.isCheckedIn).length;
+    const todayCheckIns = allGuests.filter(
+      (g) => g.isCheckedIn && g.checkedInAt && new Date(g.checkedInAt) >= today
+    ).length;
+
+    return {
+      overview: {
+        totalAdmins: admins.length,
+        activeAdmins: admins.filter((a) => a.isActive).length,
+        totalEventManagers: eventManagers.length,
+        activeEventManagers: eventManagers.filter((m) => m.isActive).length,
+        totalOrganizers: organizers.length,
+        activeOrganizers: organizers.filter((o) => o.isActive).length,
+        totalEvents: allEvents.length,
+        activeEvents: allEvents.filter((e) => e.isActive).length,
+        totalGuests: allGuests.length,
+        totalCheckedIn,
+        todayCheckIns,
+        checkInRate: allGuests.length > 0 ? Math.round((totalCheckedIn / allGuests.length) * 100) : 0,
+      },
+      admins: adminStats,
+      eventManagers: eventManagerStats,
+      events: eventStats,
+      organizers: organizerStats,
+    };
   }
 }
 
