@@ -286,9 +286,15 @@ export async function registerRoutes(
         return res.status(403).json({ error: "غير مسموح" });
       }
 
-      const updated = await storage.updateEvent(req.params.id, req.body);
+      const updateData = {
+        ...req.body,
+        date: req.body.date ? new Date(req.body.date) : undefined,
+      };
+
+      const updated = await storage.updateEvent(req.params.id, updateData);
       res.json(updated);
     } catch (error) {
+      console.error("Update event error:", error);
       res.status(500).json({ error: "خطأ في تحديث المناسبة" });
     }
   });
@@ -469,6 +475,96 @@ export async function registerRoutes(
       });
     } catch (error) {
       res.status(500).json({ error: "خطأ في تسجيل الحضور" });
+    }
+  });
+
+  // Get single guest
+  app.get("/api/guests/:id", requireRole("event_manager"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const guest = await storage.getGuest(req.params.id);
+      
+      if (!guest) {
+        return res.status(404).json({ error: "الضيف غير موجود" });
+      }
+
+      const event = await storage.getEvent(guest.eventId);
+      if (!event || event.eventManagerId !== user.id) {
+        return res.status(403).json({ error: "غير مسموح" });
+      }
+
+      res.json(guest);
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في جلب بيانات الضيف" });
+    }
+  });
+
+  // Update guest
+  app.patch("/api/guests/:id", requireRole("event_manager"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const guest = await storage.getGuest(req.params.id);
+      
+      if (!guest) {
+        return res.status(404).json({ error: "الضيف غير موجود" });
+      }
+
+      const event = await storage.getEvent(guest.eventId);
+      if (!event || event.eventManagerId !== user.id) {
+        return res.status(403).json({ error: "غير مسموح" });
+      }
+
+      const { name, phone, category, companions, notes } = req.body;
+      const updated = await storage.updateGuest(req.params.id, {
+        name,
+        phone,
+        category,
+        companions,
+        notes,
+      });
+
+      await storage.createAuditLog({
+        eventId: guest.eventId,
+        userId: user.id,
+        action: "update_guest",
+        details: `تم تعديل ضيف: ${guest.name}`,
+        guestId: guest.id,
+      });
+
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في تحديث الضيف" });
+    }
+  });
+
+  // Delete guest
+  app.delete("/api/guests/:id", requireRole("event_manager"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const guest = await storage.getGuest(req.params.id);
+      
+      if (!guest) {
+        return res.status(404).json({ error: "الضيف غير موجود" });
+      }
+
+      const event = await storage.getEvent(guest.eventId);
+      if (!event || event.eventManagerId !== user.id) {
+        return res.status(403).json({ error: "غير مسموح" });
+      }
+
+      await storage.deleteGuest(req.params.id);
+
+      await storage.createAuditLog({
+        eventId: guest.eventId,
+        userId: user.id,
+        action: "delete_guest",
+        details: `تم حذف ضيف: ${guest.name}`,
+        guestId: guest.id,
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في حذف الضيف" });
     }
   });
 

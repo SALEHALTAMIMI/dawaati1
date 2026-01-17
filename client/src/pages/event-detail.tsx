@@ -17,6 +17,9 @@ import {
   RefreshCw,
   Copy,
   Check,
+  Pencil,
+  Trash2,
+  Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -167,6 +170,26 @@ export default function EventDetailPage() {
     }
   };
 
+  const removeOrganizerMutation = useMutation({
+    mutationFn: async (organizerId: string) => {
+      await apiRequest("DELETE", `/api/events/${eventId}/organizers/${organizerId}`);
+    },
+    onSuccess: () => {
+      toast({
+        title: "تم الإزالة",
+        description: "تم إزالة المنظم بنجاح",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/events", eventId, "organizers"] });
+    },
+    onError: () => {
+      toast({
+        title: "فشلت الإزالة",
+        description: "حدث خطأ أثناء إزالة المنظم",
+        variant: "destructive",
+      });
+    },
+  });
+
   const categoryLabels: Record<string, string> = {
     vip: "VIP",
     regular: "عادي",
@@ -234,6 +257,22 @@ export default function EventDetailPage() {
         </div>
       ),
     },
+    {
+      key: "actions",
+      header: "الإجراءات",
+      render: (guest: Guest) => (
+        <Link href={`/events/${eventId}/guests/${guest.id}/edit`}>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8 text-muted-foreground hover:text-white"
+            data-testid={`button-edit-guest-${guest.id}`}
+          >
+            <Pencil className="w-4 h-4" />
+          </Button>
+        </Link>
+      ),
+    },
   ];
 
   const checkedInCount = guests.filter((g) => g.isCheckedIn).length;
@@ -262,35 +301,47 @@ export default function EventDetailPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center gap-4 mb-6">
-        <Link href="/events">
-          <Button variant="ghost" size="icon" className="text-muted-foreground">
-            <ArrowRight className="w-5 h-5" />
-          </Button>
-        </Link>
-        <div>
-          <h1 className="text-3xl font-bold text-white">{event.name}</h1>
-          <div className="flex items-center gap-4 text-muted-foreground mt-1">
-            <div className="flex items-center gap-1">
-              <Calendar className="w-4 h-4" />
-              <span>{new Date(event.date).toLocaleDateString("ar-SA")}</span>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-4">
+          <Link href="/events">
+            <Button variant="ghost" size="icon" className="text-muted-foreground">
+              <ArrowRight className="w-5 h-5" />
+            </Button>
+          </Link>
+          <div>
+            <h1 className="text-3xl font-bold text-white">{event.name}</h1>
+            <div className="flex items-center gap-4 text-muted-foreground mt-1">
+              <div className="flex items-center gap-1">
+                <Calendar className="w-4 h-4" />
+                <span>{new Date(event.date).toLocaleDateString("ar-SA")}</span>
+              </div>
+              {event.location && (
+                <div className="flex items-center gap-1">
+                  <MapPin className="w-4 h-4" />
+                  <span>{event.location}</span>
+                </div>
+              )}
+              {event.startTime && (
+                <div className="flex items-center gap-1">
+                  <Clock className="w-4 h-4" />
+                  <span>
+                    {event.startTime} - {event.endTime}
+                  </span>
+                </div>
+              )}
             </div>
-            {event.location && (
-              <div className="flex items-center gap-1">
-                <MapPin className="w-4 h-4" />
-                <span>{event.location}</span>
-              </div>
-            )}
-            {event.startTime && (
-              <div className="flex items-center gap-1">
-                <Clock className="w-4 h-4" />
-                <span>
-                  {event.startTime} - {event.endTime}
-                </span>
-              </div>
-            )}
           </div>
         </div>
+        <Link href={`/events/${eventId}/edit`}>
+          <Button
+            variant="outline"
+            className="border-white/20 text-white hover:bg-white/10"
+            data-testid="button-edit-event"
+          >
+            <Settings className="w-4 h-4 ml-2" />
+            تعديل المناسبة
+          </Button>
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -446,16 +497,28 @@ export default function EventDetailPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {organizers.map((org) => (
                 <div key={org.id} className="glass-card rounded-2xl p-6">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center">
-                      <span className="text-white font-bold text-lg">
-                        {org.name.charAt(0)}
-                      </span>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center">
+                        <span className="text-white font-bold text-lg">
+                          {org.name.charAt(0)}
+                        </span>
+                      </div>
+                      <div>
+                        <h3 className="text-white font-medium">{org.name}</h3>
+                        <p className="text-muted-foreground text-sm">@{org.username}</p>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="text-white font-medium">{org.name}</h3>
-                      <p className="text-muted-foreground text-sm">@{org.username}</p>
-                    </div>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => removeOrganizerMutation.mutate(org.id)}
+                      disabled={removeOrganizerMutation.isPending}
+                      className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                      data-testid={`button-remove-organizer-${org.id}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
                   </div>
                 </div>
               ))}
