@@ -16,7 +16,7 @@ import {
   type InsertAuditLog,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
 
 export interface IStorage {
   // Users
@@ -59,6 +59,14 @@ export interface IStorage {
   // Stats
   getStats(role: string, userId?: string): Promise<Record<string, number>>;
   getComprehensiveStats(): Promise<any>;
+
+  // Reports
+  getAdminReport(adminId: string, startDate?: Date, endDate?: Date): Promise<any>;
+  getEventManagerReport(managerId: string, startDate?: Date, endDate?: Date): Promise<any>;
+  getEventsReport(startDate?: Date, endDate?: Date, eventId?: string): Promise<any>;
+  getGuestsReport(eventId: string, startDate?: Date, endDate?: Date, checkedInOnly?: boolean): Promise<any>;
+  getAuditReport(startDate?: Date, endDate?: Date, userId?: string, eventId?: string): Promise<any>;
+  getAllAuditLogs(startDate?: Date, endDate?: Date): Promise<AuditLog[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -410,6 +418,359 @@ export class DatabaseStorage implements IStorage {
       events: eventStats,
       organizers: organizerStats,
     };
+  }
+
+  // Report functions
+  async getAdminReport(adminId: string, startDate?: Date, endDate?: Date): Promise<any> {
+    const admin = await this.getUser(adminId);
+    if (!admin || admin.role !== "admin") return null;
+
+    const allUsers = await db.select().from(users);
+    const allEvents = await db.select().from(events);
+    const allGuests = await db.select().from(guests);
+    const allAssignments = await db.select().from(eventOrganizers);
+
+    // Event managers created by this admin
+    const eventManagersCreated = allUsers.filter(
+      (u) => u.role === "event_manager" && u.createdById === adminId
+    );
+    
+    // Organizers created by this admin
+    const organizersCreated = allUsers.filter(
+      (u) => u.role === "organizer" && u.createdById === adminId
+    );
+
+    // Events by event managers this admin created
+    const eventManagerIds = eventManagersCreated.map((m) => m.id);
+    let relatedEvents = allEvents.filter((e) => eventManagerIds.includes(e.eventManagerId));
+
+    // Apply date filter
+    if (startDate) {
+      relatedEvents = relatedEvents.filter((e) => new Date(e.date) >= startDate);
+    }
+    if (endDate) {
+      relatedEvents = relatedEvents.filter((e) => new Date(e.date) <= endDate);
+    }
+
+    const relatedEventIds = relatedEvents.map((e) => e.id);
+    const relatedGuests = allGuests.filter((g) => relatedEventIds.includes(g.eventId));
+    const checkedInGuests = relatedGuests.filter((g) => g.isCheckedIn);
+
+    return {
+      admin: {
+        id: admin.id,
+        name: admin.name,
+        username: admin.username,
+        createdAt: admin.createdAt,
+        isActive: admin.isActive,
+      },
+      summary: {
+        eventManagersCount: eventManagersCreated.length,
+        organizersCount: organizersCreated.length,
+        eventsCount: relatedEvents.length,
+        totalGuests: relatedGuests.length,
+        checkedInGuests: checkedInGuests.length,
+        checkInRate: relatedGuests.length > 0 ? Math.round((checkedInGuests.length / relatedGuests.length) * 100) : 0,
+      },
+      eventManagers: eventManagersCreated.map((m) => {
+        const mEvents = relatedEvents.filter((e) => e.eventManagerId === m.id);
+        const mEventIds = mEvents.map((e) => e.id);
+        const mGuests = relatedGuests.filter((g) => mEventIds.includes(g.eventId));
+        return {
+          id: m.id,
+          name: m.name,
+          username: m.username,
+          isActive: m.isActive,
+          eventsCount: mEvents.length,
+          totalGuests: mGuests.length,
+          checkedIn: mGuests.filter((g) => g.isCheckedIn).length,
+        };
+      }),
+      events: relatedEvents.map((e) => {
+        const eGuests = relatedGuests.filter((g) => g.eventId === e.id);
+        const manager = eventManagersCreated.find((m) => m.id === e.eventManagerId);
+        return {
+          id: e.id,
+          name: e.name,
+          date: e.date,
+          location: e.location,
+          isActive: e.isActive,
+          managerName: manager?.name,
+          totalGuests: eGuests.length,
+          checkedIn: eGuests.filter((g) => g.isCheckedIn).length,
+        };
+      }),
+    };
+  }
+
+  async getEventManagerReport(managerId: string, startDate?: Date, endDate?: Date): Promise<any> {
+    const manager = await this.getUser(managerId);
+    if (!manager || manager.role !== "event_manager") return null;
+
+    const allUsers = await db.select().from(users);
+    const allGuests = await db.select().from(guests);
+    const allAssignments = await db.select().from(eventOrganizers);
+    
+    let managerEvents = await db.select().from(events).where(eq(events.eventManagerId, managerId));
+    
+    // Apply date filter
+    if (startDate) {
+      managerEvents = managerEvents.filter((e) => new Date(e.date) >= startDate);
+    }
+    if (endDate) {
+      managerEvents = managerEvents.filter((e) => new Date(e.date) <= endDate);
+    }
+
+    const eventIds = managerEvents.map((e) => e.id);
+    const eventGuests = allGuests.filter((g) => eventIds.includes(g.eventId));
+    const checkedInGuests = eventGuests.filter((g) => g.isCheckedIn);
+    
+    // Organizers created by this manager
+    const createdOrganizers = allUsers.filter(
+      (u) => u.role === "organizer" && u.createdById === managerId
+    );
+
+    // All organizers assigned to manager's events
+    const assignedOrganizerIdsSet = new Set(
+      allAssignments.filter((a) => eventIds.includes(a.eventId)).map((a) => a.organizerId)
+    );
+    const assignedOrganizerIds = Array.from(assignedOrganizerIdsSet);
+    const assignedOrganizers = allUsers.filter((u) => assignedOrganizerIds.includes(u.id));
+
+    return {
+      manager: {
+        id: manager.id,
+        name: manager.name,
+        username: manager.username,
+        createdAt: manager.createdAt,
+        isActive: manager.isActive,
+      },
+      summary: {
+        eventsCount: managerEvents.length,
+        activeEventsCount: managerEvents.filter((e) => e.isActive).length,
+        totalGuests: eventGuests.length,
+        checkedInGuests: checkedInGuests.length,
+        checkInRate: eventGuests.length > 0 ? Math.round((checkedInGuests.length / eventGuests.length) * 100) : 0,
+        createdOrganizersCount: createdOrganizers.length,
+        assignedOrganizersCount: assignedOrganizers.length,
+      },
+      events: managerEvents.map((e) => {
+        const eGuests = eventGuests.filter((g) => g.eventId === e.id);
+        const eOrgs = allAssignments.filter((a) => a.eventId === e.id);
+        const categoryBreakdown = {
+          vip: eGuests.filter((g) => g.category === "vip").length,
+          regular: eGuests.filter((g) => g.category === "regular").length,
+          media: eGuests.filter((g) => g.category === "media").length,
+          sponsor: eGuests.filter((g) => g.category === "sponsor").length,
+        };
+        return {
+          id: e.id,
+          name: e.name,
+          date: e.date,
+          location: e.location,
+          isActive: e.isActive,
+          totalGuests: eGuests.length,
+          checkedIn: eGuests.filter((g) => g.isCheckedIn).length,
+          organizersCount: eOrgs.length,
+          categoryBreakdown,
+        };
+      }),
+      organizers: createdOrganizers.map((o) => {
+        const oEvents = allAssignments.filter((a) => a.organizerId === o.id && eventIds.includes(a.eventId));
+        return {
+          id: o.id,
+          name: o.name,
+          username: o.username,
+          isActive: o.isActive,
+          assignedEventsCount: oEvents.length,
+        };
+      }),
+    };
+  }
+
+  async getEventsReport(startDate?: Date, endDate?: Date, eventId?: string): Promise<any> {
+    const allUsers = await db.select().from(users);
+    const allGuests = await db.select().from(guests);
+    const allAssignments = await db.select().from(eventOrganizers);
+    
+    let allEvents = await db.select().from(events);
+    
+    if (eventId) {
+      allEvents = allEvents.filter((e) => e.id === eventId);
+    }
+    if (startDate) {
+      allEvents = allEvents.filter((e) => new Date(e.date) >= startDate);
+    }
+    if (endDate) {
+      allEvents = allEvents.filter((e) => new Date(e.date) <= endDate);
+    }
+
+    const eventIds = allEvents.map((e) => e.id);
+    const filteredGuests = allGuests.filter((g) => eventIds.includes(g.eventId));
+    const checkedInGuests = filteredGuests.filter((g) => g.isCheckedIn);
+
+    const eventManagers = allUsers.filter((u) => u.role === "event_manager");
+
+    return {
+      summary: {
+        eventsCount: allEvents.length,
+        activeEventsCount: allEvents.filter((e) => e.isActive).length,
+        totalGuests: filteredGuests.length,
+        checkedInGuests: checkedInGuests.length,
+        checkInRate: filteredGuests.length > 0 ? Math.round((checkedInGuests.length / filteredGuests.length) * 100) : 0,
+      },
+      events: allEvents.map((e) => {
+        const eGuests = filteredGuests.filter((g) => g.eventId === e.id);
+        const eOrgs = allAssignments.filter((a) => a.eventId === e.id);
+        const manager = eventManagers.find((m) => m.id === e.eventManagerId);
+        const categoryBreakdown = {
+          vip: eGuests.filter((g) => g.category === "vip").length,
+          regular: eGuests.filter((g) => g.category === "regular").length,
+          media: eGuests.filter((g) => g.category === "media").length,
+          sponsor: eGuests.filter((g) => g.category === "sponsor").length,
+        };
+        return {
+          id: e.id,
+          name: e.name,
+          date: e.date,
+          location: e.location,
+          isActive: e.isActive,
+          createdAt: e.createdAt,
+          managerName: manager?.name || "غير معروف",
+          managerId: e.eventManagerId,
+          totalGuests: eGuests.length,
+          checkedIn: eGuests.filter((g) => g.isCheckedIn).length,
+          pending: eGuests.length - eGuests.filter((g) => g.isCheckedIn).length,
+          checkInRate: eGuests.length > 0 ? Math.round((eGuests.filter((g) => g.isCheckedIn).length / eGuests.length) * 100) : 0,
+          organizersCount: eOrgs.length,
+          categoryBreakdown,
+        };
+      }),
+    };
+  }
+
+  async getGuestsReport(eventId: string, startDate?: Date, endDate?: Date, checkedInOnly?: boolean): Promise<any> {
+    const event = await this.getEvent(eventId);
+    if (!event) return null;
+
+    let eventGuests = await db.select().from(guests).where(eq(guests.eventId, eventId));
+
+    // Filter by check-in date if provided
+    if (startDate && checkedInOnly) {
+      eventGuests = eventGuests.filter(
+        (g) => g.isCheckedIn && g.checkedInAt && new Date(g.checkedInAt) >= startDate
+      );
+    }
+    if (endDate && checkedInOnly) {
+      eventGuests = eventGuests.filter(
+        (g) => g.isCheckedIn && g.checkedInAt && new Date(g.checkedInAt) <= endDate
+      );
+    }
+    if (checkedInOnly) {
+      eventGuests = eventGuests.filter((g) => g.isCheckedIn);
+    }
+
+    const manager = await this.getUser(event.eventManagerId);
+    const organizers = await this.getEventOrganizers(eventId);
+
+    const categoryBreakdown = {
+      vip: eventGuests.filter((g) => g.category === "vip").length,
+      regular: eventGuests.filter((g) => g.category === "regular").length,
+      media: eventGuests.filter((g) => g.category === "media").length,
+      sponsor: eventGuests.filter((g) => g.category === "sponsor").length,
+    };
+
+    return {
+      event: {
+        id: event.id,
+        name: event.name,
+        date: event.date,
+        location: event.location,
+        isActive: event.isActive,
+        managerName: manager?.name,
+      },
+      summary: {
+        totalGuests: eventGuests.length,
+        checkedIn: eventGuests.filter((g) => g.isCheckedIn).length,
+        pending: eventGuests.filter((g) => !g.isCheckedIn).length,
+        totalCompanions: eventGuests.reduce((sum, g) => sum + (g.companions || 0), 0),
+        categoryBreakdown,
+      },
+      guests: eventGuests.map((g) => ({
+        id: g.id,
+        name: g.name,
+        phone: g.phone,
+        category: g.category,
+        companions: g.companions,
+        notes: g.notes,
+        isCheckedIn: g.isCheckedIn,
+        checkedInAt: g.checkedInAt,
+        qrCode: g.qrCode,
+      })),
+      organizers: organizers.map((o) => ({
+        id: o.id,
+        name: o.name,
+        username: o.username,
+      })),
+    };
+  }
+
+  async getAuditReport(startDate?: Date, endDate?: Date, userId?: string, eventId?: string): Promise<any> {
+    let logs = await db.select().from(auditLogs).orderBy(desc(auditLogs.timestamp));
+
+    if (userId) {
+      logs = logs.filter((l) => l.userId === userId);
+    }
+    if (eventId) {
+      logs = logs.filter((l) => l.eventId === eventId);
+    }
+    if (startDate) {
+      logs = logs.filter((l) => l.timestamp && new Date(l.timestamp) >= startDate);
+    }
+    if (endDate) {
+      logs = logs.filter((l) => l.timestamp && new Date(l.timestamp) <= endDate);
+    }
+
+    const allUsers = await db.select().from(users);
+    const allEvents = await db.select().from(events);
+
+    return {
+      summary: {
+        totalActions: logs.length,
+        actionTypes: {
+          check_in: logs.filter((l) => l.action === "check_in").length,
+          create_event: logs.filter((l) => l.action === "create_event").length,
+          update_event: logs.filter((l) => l.action === "update_event").length,
+          create_guest: logs.filter((l) => l.action === "create_guest").length,
+          upload_guests: logs.filter((l) => l.action === "upload_guests").length,
+        },
+      },
+      logs: logs.map((l) => {
+        const user = allUsers.find((u) => u.id === l.userId);
+        const event = allEvents.find((e) => e.id === l.eventId);
+        return {
+          id: l.id,
+          action: l.action,
+          details: l.details,
+          timestamp: l.timestamp,
+          userName: user?.name || "غير معروف",
+          eventName: event?.name || "غير معروف",
+        };
+      }),
+    };
+  }
+
+  async getAllAuditLogs(startDate?: Date, endDate?: Date): Promise<AuditLog[]> {
+    let logs = await db.select().from(auditLogs).orderBy(desc(auditLogs.timestamp));
+
+    if (startDate) {
+      logs = logs.filter((l) => l.timestamp && new Date(l.timestamp) >= startDate);
+    }
+    if (endDate) {
+      logs = logs.filter((l) => l.timestamp && new Date(l.timestamp) <= endDate);
+    }
+
+    return logs;
   }
 }
 

@@ -1161,5 +1161,266 @@ export async function registerRoutes(
     }
   });
 
+  // ============ REPORTS ENDPOINTS ============
+
+  // Get admin report (super_admin only)
+  app.get("/api/reports/admin/:id", requireRole("super_admin"), async (req, res) => {
+    try {
+      const { startDate, endDate } = req.query;
+      const start = startDate ? new Date(startDate as string) : undefined;
+      const end = endDate ? new Date(endDate as string) : undefined;
+      
+      const report = await storage.getAdminReport(req.params.id, start, end);
+      if (!report) {
+        return res.status(404).json({ error: "المدير غير موجود" });
+      }
+      res.json(report);
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في إنشاء التقرير" });
+    }
+  });
+
+  // Get event manager report (super_admin only)
+  app.get("/api/reports/event-manager/:id", requireRole("super_admin"), async (req, res) => {
+    try {
+      const { startDate, endDate } = req.query;
+      const start = startDate ? new Date(startDate as string) : undefined;
+      const end = endDate ? new Date(endDate as string) : undefined;
+      
+      const report = await storage.getEventManagerReport(req.params.id, start, end);
+      if (!report) {
+        return res.status(404).json({ error: "مدير المناسبة غير موجود" });
+      }
+      res.json(report);
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في إنشاء التقرير" });
+    }
+  });
+
+  // Get events report (super_admin only)
+  app.get("/api/reports/events", requireRole("super_admin"), async (req, res) => {
+    try {
+      const { startDate, endDate, eventId } = req.query;
+      const start = startDate ? new Date(startDate as string) : undefined;
+      const end = endDate ? new Date(endDate as string) : undefined;
+      
+      const report = await storage.getEventsReport(start, end, eventId as string);
+      res.json(report);
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في إنشاء التقرير" });
+    }
+  });
+
+  // Get guests report for a specific event (super_admin only)
+  app.get("/api/reports/guests/:eventId", requireRole("super_admin"), async (req, res) => {
+    try {
+      const { startDate, endDate, checkedInOnly } = req.query;
+      const start = startDate ? new Date(startDate as string) : undefined;
+      const end = endDate ? new Date(endDate as string) : undefined;
+      
+      const report = await storage.getGuestsReport(
+        req.params.eventId,
+        start,
+        end,
+        checkedInOnly === "true"
+      );
+      if (!report) {
+        return res.status(404).json({ error: "المناسبة غير موجودة" });
+      }
+      res.json(report);
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في إنشاء التقرير" });
+    }
+  });
+
+  // Get audit report (super_admin only)
+  app.get("/api/reports/audit", requireRole("super_admin"), async (req, res) => {
+    try {
+      const { startDate, endDate, userId, eventId } = req.query;
+      const start = startDate ? new Date(startDate as string) : undefined;
+      const end = endDate ? new Date(endDate as string) : undefined;
+      
+      const report = await storage.getAuditReport(
+        start,
+        end,
+        userId as string,
+        eventId as string
+      );
+      res.json(report);
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في إنشاء التقرير" });
+    }
+  });
+
+  // Export report to Excel (super_admin only)
+  app.post("/api/reports/export", requireRole("super_admin"), async (req, res) => {
+    try {
+      const { reportType, reportData, fileName } = req.body;
+      
+      let worksheetData: any[] = [];
+      
+      switch (reportType) {
+        case "admin":
+          worksheetData = [
+            ["تقرير المدير: " + (reportData.admin?.name || "")],
+            [],
+            ["ملخص"],
+            ["مديرو المناسبات", reportData.summary?.eventManagersCount || 0],
+            ["المنظمون", reportData.summary?.organizersCount || 0],
+            ["المناسبات", reportData.summary?.eventsCount || 0],
+            ["إجمالي الضيوف", reportData.summary?.totalGuests || 0],
+            ["الحاضرون", reportData.summary?.checkedInGuests || 0],
+            ["نسبة الحضور", (reportData.summary?.checkInRate || 0) + "%"],
+            [],
+            ["مديرو المناسبات"],
+            ["الاسم", "اسم المستخدم", "الحالة", "المناسبات", "الضيوف", "الحاضرون"],
+            ...(reportData.eventManagers || []).map((m: any) => [
+              m.name, m.username, m.isActive ? "نشط" : "غير نشط", m.eventsCount, m.totalGuests, m.checkedIn
+            ]),
+            [],
+            ["المناسبات"],
+            ["الاسم", "التاريخ", "الموقع", "مدير المناسبة", "الضيوف", "الحاضرون"],
+            ...(reportData.events || []).map((e: any) => [
+              e.name, e.date, e.location, e.managerName, e.totalGuests, e.checkedIn
+            ]),
+          ];
+          break;
+
+        case "eventManager":
+          worksheetData = [
+            ["تقرير مدير المناسبة: " + (reportData.manager?.name || "")],
+            [],
+            ["ملخص"],
+            ["المناسبات", reportData.summary?.eventsCount || 0],
+            ["المناسبات النشطة", reportData.summary?.activeEventsCount || 0],
+            ["إجمالي الضيوف", reportData.summary?.totalGuests || 0],
+            ["الحاضرون", reportData.summary?.checkedInGuests || 0],
+            ["نسبة الحضور", (reportData.summary?.checkInRate || 0) + "%"],
+            [],
+            ["المناسبات"],
+            ["الاسم", "التاريخ", "الموقع", "الضيوف", "الحاضرون", "VIP", "عادي", "إعلام", "راعي"],
+            ...(reportData.events || []).map((e: any) => [
+              e.name, e.date, e.location, e.totalGuests, e.checkedIn,
+              e.categoryBreakdown?.vip || 0, e.categoryBreakdown?.regular || 0,
+              e.categoryBreakdown?.media || 0, e.categoryBreakdown?.sponsor || 0
+            ]),
+          ];
+          break;
+
+        case "events":
+          worksheetData = [
+            ["تقرير المناسبات العام"],
+            [],
+            ["ملخص"],
+            ["إجمالي المناسبات", reportData.summary?.eventsCount || 0],
+            ["المناسبات النشطة", reportData.summary?.activeEventsCount || 0],
+            ["إجمالي الضيوف", reportData.summary?.totalGuests || 0],
+            ["الحاضرون", reportData.summary?.checkedInGuests || 0],
+            ["نسبة الحضور", (reportData.summary?.checkInRate || 0) + "%"],
+            [],
+            ["المناسبات"],
+            ["الاسم", "التاريخ", "الموقع", "مدير المناسبة", "الضيوف", "الحاضرون", "المتبقون", "النسبة%"],
+            ...(reportData.events || []).map((e: any) => [
+              e.name, e.date, e.location, e.managerName, e.totalGuests, e.checkedIn, e.pending, e.checkInRate
+            ]),
+          ];
+          break;
+
+        case "guests":
+          worksheetData = [
+            ["تقرير الضيوف - " + (reportData.event?.name || "")],
+            [],
+            ["معلومات المناسبة"],
+            ["التاريخ", reportData.event?.date || ""],
+            ["الموقع", reportData.event?.location || ""],
+            ["مدير المناسبة", reportData.event?.managerName || ""],
+            [],
+            ["ملخص"],
+            ["إجمالي الضيوف", reportData.summary?.totalGuests || 0],
+            ["الحاضرون", reportData.summary?.checkedIn || 0],
+            ["المتبقون", reportData.summary?.pending || 0],
+            ["إجمالي المرافقين", reportData.summary?.totalCompanions || 0],
+            [],
+            ["الضيوف"],
+            ["الاسم", "الهاتف", "الفئة", "المرافقين", "الملاحظات", "الحالة", "وقت الحضور"],
+            ...(reportData.guests || []).map((g: any) => [
+              g.name, g.phone, g.category, g.companions, g.notes,
+              g.isCheckedIn ? "حاضر" : "غير حاضر", g.checkedInAt || ""
+            ]),
+          ];
+          break;
+
+        case "audit":
+          worksheetData = [
+            ["تقرير سجل العمليات"],
+            [],
+            ["ملخص"],
+            ["إجمالي العمليات", reportData.summary?.totalActions || 0],
+            ["تسجيل الحضور", reportData.summary?.actionTypes?.check_in || 0],
+            ["إنشاء مناسبة", reportData.summary?.actionTypes?.create_event || 0],
+            ["تحديث مناسبة", reportData.summary?.actionTypes?.update_event || 0],
+            ["إضافة ضيف", reportData.summary?.actionTypes?.create_guest || 0],
+            ["رفع ضيوف", reportData.summary?.actionTypes?.upload_guests || 0],
+            [],
+            ["العمليات"],
+            ["التاريخ", "المستخدم", "العملية", "المناسبة", "التفاصيل"],
+            ...(reportData.logs || []).map((l: any) => [
+              l.timestamp, l.userName, l.action, l.eventName, l.details
+            ]),
+          ];
+          break;
+
+        default:
+          return res.status(400).json({ error: "نوع تقرير غير صالح" });
+      }
+
+      const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "التقرير");
+
+      // Set RTL for the worksheet
+      worksheet["!dir"] = "rtl";
+
+      const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+      
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename="${fileName || "report"}.xlsx"`);
+      res.send(buffer);
+    } catch (error) {
+      console.error("Export error:", error);
+      res.status(500).json({ error: "خطأ في تصدير التقرير" });
+    }
+  });
+
+  // Get list of admins for report selection
+  app.get("/api/reports/admins-list", requireRole("super_admin"), async (req, res) => {
+    try {
+      const admins = await storage.getUsersByRole("admin");
+      res.json(admins.map(a => ({ id: a.id, name: a.name, username: a.username })));
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في جلب قائمة المديرين" });
+    }
+  });
+
+  // Get list of event managers for report selection
+  app.get("/api/reports/event-managers-list", requireRole("super_admin"), async (req, res) => {
+    try {
+      const managers = await storage.getUsersByRole("event_manager");
+      res.json(managers.map(m => ({ id: m.id, name: m.name, username: m.username })));
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في جلب قائمة مديري المناسبات" });
+    }
+  });
+
+  // Get list of events for report selection
+  app.get("/api/reports/events-list", requireRole("super_admin"), async (req, res) => {
+    try {
+      const events = await storage.getEvents();
+      res.json(events.map(e => ({ id: e.id, name: e.name, date: e.date })));
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في جلب قائمة المناسبات" });
+    }
+  });
+
   return httpServer;
 }
