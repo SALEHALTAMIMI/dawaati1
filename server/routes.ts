@@ -571,10 +571,15 @@ export async function registerRoutes(
         });
       }
 
-      // Verify organizer has access to this event
+      // Verify access to this event
       if (user.role === "organizer") {
         const assignedEvents = await storage.getOrganizerEvents(user.id);
         if (!assignedEvents.some(e => e.id === guest.eventId)) {
+          return res.status(403).json({ error: "غير مسموح" });
+        }
+      } else if (user.role === "event_manager") {
+        const event = await storage.getEvent(guest.eventId);
+        if (!event || event.eventManagerId !== user.id) {
           return res.status(403).json({ error: "غير مسموح" });
         }
       }
@@ -774,6 +779,15 @@ export async function registerRoutes(
       }
 
       const { organizerId } = req.body;
+      
+      // Event manager can only assign organizers they created
+      if (user.role === "event_manager") {
+        const organizer = await storage.getUser(organizerId);
+        if (!organizer || organizer.createdById !== user.id) {
+          return res.status(403).json({ error: "لا يمكنك تعيين منظم لم تقم بإنشائه" });
+        }
+      }
+      
       const assignment = await storage.assignOrganizer({
         eventId: req.params.id,
         organizerId,
@@ -1061,10 +1075,15 @@ export async function registerRoutes(
         return res.status(400).json({ status: "invalid", message: "هذا الكود ليس لهذه المناسبة" });
       }
 
-      // Verify organizer access
+      // Verify access to the event
       if (user.role === "organizer") {
         const assignedEvents = await storage.getOrganizerEvents(user.id);
         if (!assignedEvents.some(e => e.id === guest.eventId)) {
+          return res.status(403).json({ error: "غير مسموح" });
+        }
+      } else if (user.role === "event_manager") {
+        const event = await storage.getEvent(guest.eventId);
+        if (!event || event.eventManagerId !== user.id) {
           return res.status(403).json({ error: "غير مسموح" });
         }
       }
@@ -1121,10 +1140,15 @@ export async function registerRoutes(
         return res.status(404).json({ status: "invalid", message: "الدعوة غير صالحة" });
       }
 
-      // Verify organizer access
+      // Verify access to the event
       if (user.role === "organizer") {
         const assignedEvents = await storage.getOrganizerEvents(user.id);
         if (!assignedEvents.some(e => e.id === guest.eventId)) {
+          return res.status(403).json({ error: "غير مسموح" });
+        }
+      } else if (user.role === "event_manager") {
+        const event = await storage.getEvent(guest.eventId);
+        if (!event || event.eventManagerId !== user.id) {
           return res.status(403).json({ error: "غير مسموح" });
         }
       }
