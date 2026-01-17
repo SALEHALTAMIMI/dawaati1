@@ -46,6 +46,8 @@ A comprehensive Arabic RTL Event Access Management Web Application (SaaS) design
   - Audit logs: Activity tracking with action type analysis
 - Date range filtering for all reports
 - Excel export with RTL Arabic formatting
+- Site settings page for super_admin to manage social media links
+- Social media icons on login page (WhatsApp, Instagram, Facebook, X, LinkedIn)
 
 ## Default Credentials
 - **Super Admin:** username: `admin`, password: `admin123`
