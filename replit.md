@@ -35,6 +35,9 @@ A comprehensive Arabic RTL Event Access Management Web Application (SaaS) design
 - Check-in system with duplicate detection
 - Audit logging for all actions
 - Offline capability for organizers (PWA)
+- Comprehensive statistics dashboard for super_admin with detailed analytics
+- Full admin management (create, edit, toggle, delete) for super_admin
+- Lockout protection: Users cannot disable/delete their own accounts
 
 ## Default Credentials
 - **Super Admin:** username: `admin`, password: `admin123`
@@ -49,12 +52,13 @@ A comprehensive Arabic RTL Event Access Management Web Application (SaaS) design
 
 ## API Endpoints
 - `/api/auth/*` - Authentication (login, logout, me)
-- `/api/users/*` - User management
+- `/api/users/*` - User management (CRUD, toggle-active)
 - `/api/events/*` - Event CRUD
 - `/api/events/:id/guests` - Guest management
 - `/api/events/:id/upload-guests` - Excel upload
 - `/api/guests/:id/check-in` - Check-in endpoint
-- `/api/stats/*` - Dashboard statistics
+- `/api/stats/comprehensive` - Detailed statistics for super_admin
+- `/api/stats/*` - Dashboard statistics by role
 
 ## Running the Application
 1. Database is auto-provisioned via PostgreSQL
