@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Settings, Save, Loader2, MessageCircle } from "lucide-react";
 import { SiWhatsapp, SiInstagram, SiFacebook, SiX, SiLinkedin } from "react-icons/si";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,6 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { Layout } from "@/components/layout";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useState, useEffect } from "react";
 
 interface SiteSettings {
   whatsapp?: string | null;
@@ -21,9 +23,7 @@ interface SiteSettings {
 export default function SettingsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [isLoading, setIsLoading] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [settings, setSettings] = useState<SiteSettings>({
+  const [formData, setFormData] = useState<SiteSettings>({
     whatsapp: "",
     instagram: "",
     facebook: "",
@@ -31,69 +31,57 @@ export default function SettingsPage() {
     linkedin: "",
   });
 
+  const { data: settings, isLoading } = useQuery<SiteSettings>({
+    queryKey: ["/api/settings"],
+    enabled: user?.role === "super_admin",
+  });
+
   useEffect(() => {
-    fetchSettings();
-  }, []);
-
-  const fetchSettings = async () => {
-    setIsLoading(true);
-    try {
-      const response = await fetch("/api/settings", { credentials: "include" });
-      if (response.ok) {
-        const data = await response.json();
-        setSettings({
-          whatsapp: data.whatsapp || "",
-          instagram: data.instagram || "",
-          facebook: data.facebook || "",
-          twitter: data.twitter || "",
-          linkedin: data.linkedin || "",
-        });
-      }
-    } catch (error) {
-      console.error("Failed to fetch settings:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      const response = await fetch("/api/settings", {
-        method: "PUT",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settings),
+    if (settings) {
+      setFormData({
+        whatsapp: settings.whatsapp || "",
+        instagram: settings.instagram || "",
+        facebook: settings.facebook || "",
+        twitter: settings.twitter || "",
+        linkedin: settings.linkedin || "",
       });
+    }
+  }, [settings]);
 
-      if (response.ok) {
-        toast({
-          title: "تم الحفظ",
-          description: "تم حفظ إعدادات الموقع بنجاح",
-        });
-      } else {
-        throw new Error("Failed to save");
-      }
-    } catch (error) {
+  const updateMutation = useMutation({
+    mutationFn: async (data: SiteSettings) => {
+      const res = await apiRequest("PUT", "/api/settings", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({
+        title: "تم الحفظ",
+        description: "تم حفظ إعدادات الموقع بنجاح",
+      });
+    },
+    onError: () => {
       toast({
         title: "خطأ",
         description: "فشل في حفظ الإعدادات",
         variant: "destructive",
       });
-    } finally {
-      setIsSaving(false);
-    }
+    },
+  });
+
+  const handleSave = () => {
+    updateMutation.mutate(formData);
   };
 
   if (user?.role !== "super_admin") {
     return (
       <Layout>
-        <div className="flex items-center justify-center h-full">
+        <div className="flex items-center justify-center h-full" data-testid="settings-unauthorized">
           <Card className="glass-card border-white/10 text-center p-8">
             <CardContent>
               <Settings className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-              <h2 className="text-xl font-bold text-white mb-2">غير مصرح</h2>
-              <p className="text-muted-foreground">هذه الصفحة متاحة لمالك النظام فقط</p>
+              <h2 className="text-xl font-bold text-white mb-2" data-testid="text-unauthorized-title">غير مصرح</h2>
+              <p className="text-muted-foreground" data-testid="text-unauthorized-message">هذه الصفحة متاحة لمالك النظام فقط</p>
             </CardContent>
           </Card>
         </div>
@@ -114,23 +102,23 @@ export default function SettingsPage() {
               <Settings className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-white">إعدادات الموقع</h1>
-              <p className="text-muted-foreground">إدارة روابط التواصل الاجتماعي</p>
+              <h1 className="text-2xl font-bold text-white" data-testid="text-settings-title">إعدادات الموقع</h1>
+              <p className="text-muted-foreground" data-testid="text-settings-subtitle">إدارة روابط التواصل الاجتماعي</p>
             </div>
           </div>
 
           {isLoading ? (
-            <div className="flex items-center justify-center py-12">
+            <div className="flex items-center justify-center py-12" data-testid="settings-loading">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
             </div>
           ) : (
-            <Card className="glass-card border-white/10">
+            <Card className="glass-card border-white/10" data-testid="card-social-settings">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <MessageCircle className="w-5 h-5" />
-                  روابط التواصل الاجتماعي
+                  <span data-testid="text-social-title">روابط التواصل الاجتماعي</span>
                 </CardTitle>
-                <CardDescription>
+                <CardDescription data-testid="text-social-description">
                   أضف روابط التواصل الاجتماعي لعرضها في صفحة تسجيل الدخول
                 </CardDescription>
               </CardHeader>
@@ -138,27 +126,27 @@ export default function SettingsPage() {
                 <div className="space-y-2">
                   <Label className="text-white/90 flex items-center gap-2">
                     <SiWhatsapp className="w-5 h-5 text-green-500" />
-                    واتساب
+                    <span data-testid="label-whatsapp">واتساب</span>
                   </Label>
                   <Input
-                    value={settings.whatsapp || ""}
-                    onChange={(e) => setSettings({ ...settings, whatsapp: e.target.value })}
+                    value={formData.whatsapp || ""}
+                    onChange={(e) => setFormData({ ...formData, whatsapp: e.target.value })}
                     placeholder="مثال: https://wa.me/966500000000"
                     className="glass-input text-white placeholder:text-muted-foreground border-white/10"
                     dir="ltr"
                     data-testid="input-whatsapp"
                   />
-                  <p className="text-xs text-muted-foreground">أدخل رابط واتساب أو رقم الهاتف بصيغة wa.me</p>
+                  <p className="text-xs text-muted-foreground" data-testid="text-whatsapp-hint">أدخل رابط واتساب أو رقم الهاتف بصيغة wa.me</p>
                 </div>
 
                 <div className="space-y-2">
                   <Label className="text-white/90 flex items-center gap-2">
                     <SiInstagram className="w-5 h-5 text-pink-500" />
-                    انستغرام
+                    <span data-testid="label-instagram">انستغرام</span>
                   </Label>
                   <Input
-                    value={settings.instagram || ""}
-                    onChange={(e) => setSettings({ ...settings, instagram: e.target.value })}
+                    value={formData.instagram || ""}
+                    onChange={(e) => setFormData({ ...formData, instagram: e.target.value })}
                     placeholder="مثال: https://instagram.com/username"
                     className="glass-input text-white placeholder:text-muted-foreground border-white/10"
                     dir="ltr"
@@ -169,11 +157,11 @@ export default function SettingsPage() {
                 <div className="space-y-2">
                   <Label className="text-white/90 flex items-center gap-2">
                     <SiFacebook className="w-5 h-5 text-blue-500" />
-                    فيسبوك
+                    <span data-testid="label-facebook">فيسبوك</span>
                   </Label>
                   <Input
-                    value={settings.facebook || ""}
-                    onChange={(e) => setSettings({ ...settings, facebook: e.target.value })}
+                    value={formData.facebook || ""}
+                    onChange={(e) => setFormData({ ...formData, facebook: e.target.value })}
                     placeholder="مثال: https://facebook.com/pagename"
                     className="glass-input text-white placeholder:text-muted-foreground border-white/10"
                     dir="ltr"
@@ -184,11 +172,11 @@ export default function SettingsPage() {
                 <div className="space-y-2">
                   <Label className="text-white/90 flex items-center gap-2">
                     <SiX className="w-5 h-5 text-white" />
-                    إكس (تويتر سابقاً)
+                    <span data-testid="label-twitter">إكس (تويتر سابقاً)</span>
                   </Label>
                   <Input
-                    value={settings.twitter || ""}
-                    onChange={(e) => setSettings({ ...settings, twitter: e.target.value })}
+                    value={formData.twitter || ""}
+                    onChange={(e) => setFormData({ ...formData, twitter: e.target.value })}
                     placeholder="مثال: https://x.com/username"
                     className="glass-input text-white placeholder:text-muted-foreground border-white/10"
                     dir="ltr"
@@ -199,11 +187,11 @@ export default function SettingsPage() {
                 <div className="space-y-2">
                   <Label className="text-white/90 flex items-center gap-2">
                     <SiLinkedin className="w-5 h-5 text-blue-600" />
-                    لينكدإن
+                    <span data-testid="label-linkedin">لينكدإن</span>
                   </Label>
                   <Input
-                    value={settings.linkedin || ""}
-                    onChange={(e) => setSettings({ ...settings, linkedin: e.target.value })}
+                    value={formData.linkedin || ""}
+                    onChange={(e) => setFormData({ ...formData, linkedin: e.target.value })}
                     placeholder="مثال: https://linkedin.com/in/username"
                     className="glass-input text-white placeholder:text-muted-foreground border-white/10"
                     dir="ltr"
@@ -213,11 +201,11 @@ export default function SettingsPage() {
 
                 <Button
                   onClick={handleSave}
-                  disabled={isSaving}
+                  disabled={updateMutation.isPending}
                   className="w-full gradient-primary text-white glow-primary"
                   data-testid="button-save-settings"
                 >
-                  {isSaving ? (
+                  {updateMutation.isPending ? (
                     <Loader2 className="w-5 h-5 animate-spin ml-2" />
                   ) : (
                     <Save className="w-5 h-5 ml-2" />

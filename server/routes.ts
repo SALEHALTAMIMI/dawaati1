@@ -16,6 +16,7 @@ function generateAccessCode(): string {
   return `${code.slice(0, 4)}-${code.slice(4, 8)}-${code.slice(8, 12)}`;
 }
 import { insertUserSchema, insertEventSchema } from "@shared/schema";
+import { z } from "zod";
 import multer from "multer";
 import * as XLSX from "xlsx";
 import QRCode from "qrcode";
@@ -1493,7 +1494,25 @@ export async function registerRoutes(
   // Site Settings - Update (super_admin only)
   app.put("/api/settings", requireRole("super_admin"), async (req, res) => {
     try {
-      const { whatsapp, instagram, facebook, twitter, linkedin } = req.body;
+      // Allow empty strings (which will be converted to null) or valid URLs
+      const urlSchema = z.string().refine(
+        (val) => val === "" || /^https?:\/\/.+/.test(val),
+        { message: "يجب أن يكون رابط صالح" }
+      ).nullable().optional();
+      const settingsSchema = z.object({
+        whatsapp: urlSchema,
+        instagram: urlSchema,
+        facebook: urlSchema,
+        twitter: urlSchema,
+        linkedin: urlSchema,
+      });
+      
+      const parseResult = settingsSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ error: "بيانات غير صالحة - تأكد من صحة الروابط" });
+      }
+      
+      const { whatsapp, instagram, facebook, twitter, linkedin } = parseResult.data;
       const settings = await storage.updateSiteSettings({
         whatsapp: whatsapp || null,
         instagram: instagram || null,
