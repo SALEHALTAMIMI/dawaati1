@@ -10,6 +10,7 @@ import {
   QrCode,
   ClipboardList,
   BarChart3,
+  FileText,
   Menu,
   X
 } from "lucide-react";
@@ -25,6 +26,7 @@ const menuItems = {
   super_admin: [
     { icon: LayoutDashboard, label: "لوحة التحكم", path: "/" },
     { icon: BarChart3, label: "الإحصائيات التفصيلية", path: "/statistics" },
+    { icon: FileText, label: "التقارير", path: "/reports" },
     { icon: UserCog, label: "إدارة المديرين", path: "/admins" },
     { icon: Users, label: "مديرو المناسبات", path: "/event-managers" },
     { icon: Calendar, label: "المناسبات", path: "/events" },
