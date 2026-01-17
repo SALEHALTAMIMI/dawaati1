@@ -38,6 +38,14 @@ A comprehensive Arabic RTL Event Access Management Web Application (SaaS) design
 - Comprehensive statistics dashboard for super_admin with detailed analytics
 - Full admin management (create, edit, toggle, delete) for super_admin
 - Lockout protection: Users cannot disable/delete their own accounts
+- Advanced reporting system with 5 report types (super_admin only):
+  - Admin reports: Managed users and events overview
+  - Event Manager reports: Events and guests statistics
+  - Events reports: All events with check-in metrics
+  - Guests reports: Detailed guest lists with category breakdown
+  - Audit logs: Activity tracking with action type analysis
+- Date range filtering for all reports
+- Excel export with RTL Arabic formatting
 
 ## Default Credentials
 - **Super Admin:** username: `admin`, password: `admin123`
