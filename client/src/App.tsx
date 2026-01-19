@@ -22,6 +22,7 @@ import OrganizersPage from "@/pages/organizers";
 import StatisticsPage from "@/pages/statistics";
 import ReportsPage from "@/pages/reports";
 import SettingsPage from "@/pages/settings";
+import CapacityTiersPage from "@/pages/capacity-tiers";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoutes() {
@@ -56,6 +57,7 @@ function ProtectedRoutes() {
         <Route path="/statistics" component={StatisticsPage} />
         <Route path="/reports" component={ReportsPage} />
         <Route path="/settings" component={SettingsPage} />
+        <Route path="/capacity-tiers" component={CapacityTiersPage} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

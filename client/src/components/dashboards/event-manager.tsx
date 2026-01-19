@@ -1,11 +1,20 @@
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Calendar, Users, UserCheck, Clock, Plus, ArrowLeft } from "lucide-react";
+import { Calendar, Users, UserCheck, Clock, Plus, ArrowLeft, Package, AlertCircle } from "lucide-react";
 import { Link } from "wouter";
 import { StatsCard } from "@/components/stats-card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import type { Event } from "@shared/schema";
+
+interface QuotaInfo {
+  hasQuota: boolean;
+  totalQuota: number;
+  usedQuota: number;
+  remainingQuota: number;
+}
 
 export function EventManagerDashboard() {
   const { data: stats } = useQuery<{
@@ -21,6 +30,16 @@ export function EventManagerDashboard() {
     queryKey: ["/api/events"],
   });
 
+  const { data: quotaInfo } = useQuery<QuotaInfo>({
+    queryKey: ["/api/quota/info"],
+  });
+
+  const quotaPercentage = quotaInfo?.hasQuota 
+    ? Math.round((quotaInfo.usedQuota / quotaInfo.totalQuota) * 100) 
+    : 0;
+  const isLowQuota = quotaInfo?.hasQuota && quotaInfo.remainingQuota <= 2;
+  const isExhausted = quotaInfo?.hasQuota && quotaInfo.remainingQuota === 0;
+
   const upcomingEvents = events.filter(e => new Date(e.date) >= new Date()).slice(0, 5);
 
   return (
@@ -31,12 +50,53 @@ export function EventManagerDashboard() {
           <p className="text-muted-foreground">إدارة مناسباتك وفريق العمل</p>
         </div>
         <Link href="/events/new">
-          <Button className="gradient-primary glow-primary" data-testid="button-new-event">
+          <Button 
+            className="gradient-primary glow-primary" 
+            data-testid="button-new-event"
+            disabled={isExhausted}
+          >
             <Plus className="w-5 h-5 ml-2" />
             مناسبة جديدة
           </Button>
         </Link>
       </div>
+
+      {/* Quota Info Card */}
+      {quotaInfo?.hasQuota && (
+        <Card className={`glass-card border-white/10 ${isExhausted ? "border-red-500/50" : isLowQuota ? "border-yellow-500/50" : ""}`} data-testid="card-quota-info">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-4">
+              <div className={`p-3 rounded-xl ${isExhausted ? "bg-red-500/20" : isLowQuota ? "bg-yellow-500/20" : "gradient-primary"}`}>
+                {isExhausted ? (
+                  <AlertCircle className="w-6 h-6 text-red-400" />
+                ) : (
+                  <Package className="w-6 h-6 text-white" />
+                )}
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-white font-medium" data-testid="text-quota-title">رصيد المناسبات</span>
+                  <span className={`font-bold ${isExhausted ? "text-red-400" : isLowQuota ? "text-yellow-400" : "text-primary"}`} data-testid="text-quota-remaining">
+                    {quotaInfo.remainingQuota} متبقي من {quotaInfo.totalQuota}
+                  </span>
+                </div>
+                <Progress 
+                  value={quotaPercentage} 
+                  className={`h-2 ${isExhausted ? "[&>div]:bg-red-500" : isLowQuota ? "[&>div]:bg-yellow-500" : ""}`}
+                  data-testid="progress-quota"
+                />
+                <p className="text-sm text-muted-foreground mt-2" data-testid="text-quota-used">
+                  {isExhausted 
+                    ? "لقد استنفذت حصتك. تواصل مع مالك النظام لزيادة الحصة."
+                    : isLowQuota 
+                      ? "حصتك على وشك النفاد. تواصل مع مالك النظام لزيادتها."
+                      : `المستخدم: ${quotaInfo.usedQuota} مناسبة`}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatsCard

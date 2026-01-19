@@ -12,7 +12,8 @@ import {
   BarChart3,
   FileText,
   Menu,
-  X
+  X,
+  Package
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,7 @@ const menuItems = {
     { icon: UserCog, label: "إدارة المديرين", path: "/admins" },
     { icon: Users, label: "مديرو المناسبات", path: "/event-managers" },
     { icon: Calendar, label: "المناسبات", path: "/events" },
+    { icon: Package, label: "باقات السعة", path: "/capacity-tiers" },
     { icon: Settings, label: "إعدادات الموقع", path: "/settings" },
   ],
   admin: [
