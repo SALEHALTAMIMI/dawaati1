@@ -1708,5 +1708,95 @@ export async function registerRoutes(
     }
   });
 
+  // Subscriptions Management - Get all event managers with usage details
+  app.get("/api/subscriptions", requireRole("super_admin"), async (req, res) => {
+    try {
+      const eventManagers = await storage.getUsersByRole("event_manager");
+      const capacityTiers = await storage.getCapacityTiers();
+      
+      const subscriptionsData = await Promise.all(
+        eventManagers.map(async (manager) => {
+          const events = await storage.getEventsByManager(manager.id);
+          const eventCount = events.length;
+          const quota = manager.eventQuota || 0;
+          
+          // Count events by capacity tier
+          const tierUsage: Record<string, { count: number; guests: number }> = {};
+          let totalGuests = 0;
+          
+          for (const event of events) {
+            const guests = await storage.getGuestsByEvent(event.id);
+            const guestCount = guests.length;
+            totalGuests += guestCount;
+            
+            const tierId = event.capacityTierId || "none";
+            if (!tierUsage[tierId]) {
+              tierUsage[tierId] = { count: 0, guests: 0 };
+            }
+            tierUsage[tierId].count++;
+            tierUsage[tierId].guests += guestCount;
+          }
+          
+          // Map tier IDs to names
+          const tierDetails = Object.entries(tierUsage).map(([tierId, usage]) => {
+            const tier = capacityTiers.find(t => t.id === tierId);
+            return {
+              tierId,
+              tierName: tier?.name || "بدون باقة",
+              eventCount: usage.count,
+              guestCount: usage.guests,
+            };
+          });
+          
+          return {
+            id: manager.id,
+            name: manager.name,
+            username: manager.username,
+            isActive: manager.isActive,
+            eventQuota: quota,
+            eventsUsed: eventCount,
+            eventsRemaining: Math.max(0, quota - eventCount),
+            totalGuests,
+            tierUsage: tierDetails,
+            createdAt: manager.createdAt,
+          };
+        })
+      );
+      
+      res.json(subscriptionsData);
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في جلب بيانات الاشتراكات" });
+    }
+  });
+
+  // Update event manager quota
+  app.patch("/api/subscriptions/:id/quota", requireRole("super_admin"), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { eventQuota } = req.body;
+      
+      if (typeof eventQuota !== "number" || eventQuota < 0) {
+        return res.status(400).json({ error: "الحصة يجب أن تكون رقم موجب" });
+      }
+      
+      const user = await storage.getUser(id);
+      if (!user || user.role !== "event_manager") {
+        return res.status(404).json({ error: "مدير المناسبات غير موجود" });
+      }
+      
+      const updated = await storage.updateUser(id, { eventQuota });
+      
+      await storage.createAuditLog({
+        userId: (req as any).user.id,
+        action: "update_quota",
+        details: `تم تحديث حصة ${user.name} إلى ${eventQuota} مناسبة`,
+      });
+      
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في تحديث الحصة" });
+    }
+  });
+
   return httpServer;
 }

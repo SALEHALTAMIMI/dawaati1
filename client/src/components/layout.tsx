@@ -13,7 +13,8 @@ import {
   FileText,
   Menu,
   X,
-  Package
+  Package,
+  CreditCard
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,7 @@ const menuItems = {
     { icon: FileText, label: "التقارير", path: "/reports" },
     { icon: UserCog, label: "إدارة المديرين", path: "/admins" },
     { icon: Users, label: "مديرو المناسبات", path: "/event-managers" },
+    { icon: CreditCard, label: "إدارة الاشتراكات", path: "/subscriptions" },
     { icon: Calendar, label: "المناسبات", path: "/events" },
     { icon: Package, label: "باقات السعة", path: "/capacity-tiers" },
     { icon: Settings, label: "إعدادات الموقع", path: "/settings" },
