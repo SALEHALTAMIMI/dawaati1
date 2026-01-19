@@ -1729,7 +1729,8 @@ export async function registerRoutes(
             const guestCount = guests.length;
             totalGuests += guestCount;
             
-            const tierId = event.capacityTierId || "none";
+            // Ensure consistent string type for tier ID comparison
+            const tierId = event.capacityTierId ? String(event.capacityTierId) : "none";
             if (!tierUsage[tierId]) {
               tierUsage[tierId] = { count: 0, guests: 0 };
             }
@@ -1737,9 +1738,9 @@ export async function registerRoutes(
             tierUsage[tierId].guests += guestCount;
           }
           
-          // Map tier IDs to names
+          // Map tier IDs to names - ensure consistent string comparison
           const tierDetails = Object.entries(tierUsage).map(([tierId, usage]) => {
-            const tier = capacityTiers.find(t => t.id === tierId);
+            const tier = capacityTiers.find(t => String(t.id) === tierId);
             return {
               tierId,
               tierName: tier?.name || "بدون باقة",
@@ -1770,14 +1771,20 @@ export async function registerRoutes(
   });
 
   // Update event manager quota
+  const quotaUpdateSchema = z.object({
+    eventQuota: z.number().int().min(0, "الحصة يجب أن تكون رقم صحيح موجب").max(1000, "الحد الأقصى للحصة هو 1000"),
+  });
+  
   app.patch("/api/subscriptions/:id/quota", requireRole("super_admin"), async (req, res) => {
     try {
       const { id } = req.params;
-      const { eventQuota } = req.body;
       
-      if (typeof eventQuota !== "number" || eventQuota < 0) {
-        return res.status(400).json({ error: "الحصة يجب أن تكون رقم موجب" });
+      const parseResult = quotaUpdateSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ error: parseResult.error.errors[0]?.message || "بيانات غير صالحة" });
       }
+      
+      const { eventQuota } = parseResult.data;
       
       const user = await storage.getUser(id);
       if (!user || user.role !== "event_manager") {
