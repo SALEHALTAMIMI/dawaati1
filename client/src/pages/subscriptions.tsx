@@ -12,22 +12,24 @@ import {
   Check,
   X,
   UserCheck,
-  UserX,
-  TrendingUp
+  TrendingUp,
+  Save
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
-interface TierUsage {
+interface TierQuota {
   tierId: string;
   tierName: string;
+  quota: number;
   eventCount: number;
   guestCount: number;
+  remaining: number;
 }
 
 interface Subscription {
@@ -35,41 +37,42 @@ interface Subscription {
   name: string;
   username: string;
   isActive: boolean;
-  eventQuota: number;
+  totalQuota: number;
   eventsUsed: number;
   eventsRemaining: number;
   totalGuests: number;
-  tierUsage: TierUsage[];
+  tierQuotas: TierQuota[];
   createdAt: string;
 }
 
 export default function SubscriptionsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editQuota, setEditQuota] = useState<number>(0);
+  const [editQuotas, setEditQuotas] = useState<Record<string, number>>({});
   const { toast } = useToast();
 
   const { data: subscriptions = [], isLoading } = useQuery<Subscription[]>({
     queryKey: ["/api/subscriptions"],
   });
 
-  const updateQuotaMutation = useMutation({
-    mutationFn: async ({ id, eventQuota }: { id: string; eventQuota: number }) => {
-      const res = await apiRequest("PATCH", `/api/subscriptions/${id}/quota`, { eventQuota });
+  const updateTierQuotasMutation = useMutation({
+    mutationFn: async ({ id, tierQuotas }: { id: string; tierQuotas: { tierId: string; quota: number }[] }) => {
+      const res = await apiRequest("PATCH", `/api/subscriptions/${id}/tier-quotas`, { tierQuotas });
       return res.json();
     },
     onSuccess: () => {
       toast({
         title: "تم التحديث",
-        description: "تم تحديث حصة مدير المناسبات بنجاح",
+        description: "تم تحديث حصص الباقات بنجاح",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/subscriptions"] });
       setEditingId(null);
+      setEditQuotas({});
     },
     onError: () => {
       toast({
         title: "فشل التحديث",
-        description: "حدث خطأ أثناء تحديث الحصة",
+        description: "حدث خطأ أثناء تحديث الحصص",
         variant: "destructive",
       });
     },
@@ -77,20 +80,30 @@ export default function SubscriptionsPage() {
 
   const handleStartEdit = (sub: Subscription) => {
     setEditingId(sub.id);
-    setEditQuota(sub.eventQuota);
+    const quotas: Record<string, number> = {};
+    sub.tierQuotas.forEach(tq => {
+      quotas[tq.tierId] = tq.quota;
+    });
+    setEditQuotas(quotas);
   };
 
-  const handleSaveQuota = (id: string) => {
-    updateQuotaMutation.mutate({ id, eventQuota: editQuota });
+  const handleSaveQuotas = (id: string) => {
+    const tierQuotas = Object.entries(editQuotas).map(([tierId, quota]) => ({
+      tierId,
+      quota,
+    }));
+    updateTierQuotasMutation.mutate({ id, tierQuotas });
   };
 
   const handleCancelEdit = () => {
     setEditingId(null);
-    setEditQuota(0);
+    setEditQuotas({});
   };
 
   const toggleExpand = (id: string) => {
-    setExpandedId(expandedId === id ? null : id);
+    if (editingId !== id) {
+      setExpandedId(expandedId === id ? null : id);
+    }
   };
 
   const totalManagers = subscriptions.length;
@@ -110,7 +123,7 @@ export default function SubscriptionsPage() {
     <div className="space-y-8">
       <div>
         <h1 className="text-3xl font-bold text-white mb-2">إدارة الاشتراكات</h1>
-        <p className="text-muted-foreground">تتبع حصص مديري المناسبات واستخدامهم</p>
+        <p className="text-muted-foreground">تتبع حصص مديري المناسبات واستخدامهم لكل باقة</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -182,12 +195,12 @@ export default function SubscriptionsPage() {
           </Card>
         ) : (
           subscriptions.map((sub, index) => {
-            const usagePercentage = sub.eventQuota > 0 
-              ? Math.round((sub.eventsUsed / sub.eventQuota) * 100) 
+            const usagePercentage = sub.totalQuota > 0 
+              ? Math.round((sub.eventsUsed / sub.totalQuota) * 100) 
               : 0;
-            const isExhausted = sub.eventsRemaining === 0 && sub.eventQuota > 0;
+            const isExhausted = sub.eventsRemaining === 0 && sub.totalQuota > 0;
             const isLow = sub.eventsRemaining <= 2 && sub.eventsRemaining > 0;
-            const isExpanded = expandedId === sub.id;
+            const isExpanded = expandedId === sub.id || editingId === sub.id;
             const isEditing = editingId === sub.id;
 
             return (
@@ -206,7 +219,7 @@ export default function SubscriptionsPage() {
                   <CardContent className="p-0">
                     <div 
                       className="p-6 cursor-pointer hover:bg-white/5 transition-colors"
-                      onClick={() => !isEditing && toggleExpand(sub.id)}
+                      onClick={() => toggleExpand(sub.id)}
                     >
                       <div className="flex items-center justify-between gap-4 flex-wrap">
                         <div className="flex items-center gap-4">
@@ -238,57 +251,11 @@ export default function SubscriptionsPage() {
                                 {sub.eventsUsed}
                               </span>
                               <span className="text-muted-foreground">/</span>
-                              {isEditing ? (
-                                <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-                                  <Input
-                                    type="number"
-                                    value={editQuota}
-                                    onChange={(e) => setEditQuota(parseInt(e.target.value) || 0)}
-                                    className="w-16 h-8 text-center"
-                                    min={0}
-                                    data-testid={`input-quota-${sub.id}`}
-                                  />
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-8 w-8 text-green-400 hover:text-green-300"
-                                    onClick={() => handleSaveQuota(sub.id)}
-                                    disabled={updateQuotaMutation.isPending}
-                                    data-testid={`button-save-quota-${sub.id}`}
-                                  >
-                                    <Check className="w-4 h-4" />
-                                  </Button>
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-8 w-8 text-red-400 hover:text-red-300"
-                                    onClick={handleCancelEdit}
-                                    data-testid={`button-cancel-quota-${sub.id}`}
-                                  >
-                                    <X className="w-4 h-4" />
-                                  </Button>
-                                </div>
-                              ) : (
-                                <div className="flex items-center gap-1">
-                                  <span className={`font-bold ${
-                                    isExhausted ? "text-red-400" : isLow ? "text-yellow-400" : "text-primary"
-                                  }`} data-testid={`text-quota-${sub.id}`}>
-                                    {sub.eventQuota}
-                                  </span>
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-6 w-6 text-muted-foreground hover:text-white"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleStartEdit(sub);
-                                    }}
-                                    data-testid={`button-edit-quota-${sub.id}`}
-                                  >
-                                    <Edit3 className="w-3 h-3" />
-                                  </Button>
-                                </div>
-                              )}
+                              <span className={`font-bold ${
+                                isExhausted ? "text-red-400" : isLow ? "text-yellow-400" : "text-primary"
+                              }`} data-testid={`text-quota-${sub.id}`}>
+                                {sub.totalQuota}
+                              </span>
                             </div>
                           </div>
 
@@ -316,6 +283,21 @@ export default function SubscriptionsPage() {
                             />
                           </div>
 
+                          {!isEditing && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="text-primary hover:text-primary/80"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleStartEdit(sub);
+                              }}
+                              data-testid={`button-edit-quotas-${sub.id}`}
+                            >
+                              <Edit3 className="w-5 h-5" />
+                            </Button>
+                          )}
+
                           <Button
                             size="icon"
                             variant="ghost"
@@ -342,41 +324,120 @@ export default function SubscriptionsPage() {
                           className="overflow-hidden"
                         >
                           <div className="px-6 pb-6 border-t border-white/10 pt-4">
-                            <h4 className="text-white font-medium mb-4 flex items-center gap-2">
-                              <Package className="w-4 h-4" />
-                              استخدام الباقات
-                            </h4>
+                            <div className="flex items-center justify-between mb-4">
+                              <h4 className="text-white font-medium flex items-center gap-2">
+                                <Package className="w-4 h-4" />
+                                {isEditing ? "تعديل حصص الباقات" : "حصص الباقات"}
+                              </h4>
+                              {isEditing && (
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="text-red-400 hover:text-red-300"
+                                    onClick={handleCancelEdit}
+                                    data-testid={`button-cancel-edit-${sub.id}`}
+                                  >
+                                    <X className="w-4 h-4 ml-1" />
+                                    إلغاء
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    className="gradient-primary"
+                                    onClick={() => handleSaveQuotas(sub.id)}
+                                    disabled={updateTierQuotasMutation.isPending}
+                                    data-testid={`button-save-quotas-${sub.id}`}
+                                  >
+                                    <Save className="w-4 h-4 ml-1" />
+                                    حفظ
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
                             
-                            {sub.tierUsage.length === 0 ? (
-                              <p className="text-muted-foreground text-sm">لم يقم بإنشاء أي مناسبات بعد</p>
-                            ) : (
-                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                {sub.tierUsage.map((tier, i) => (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                              {sub.tierQuotas.map((tier) => {
+                                const tierUsagePercent = tier.quota > 0 
+                                  ? Math.round((tier.eventCount / tier.quota) * 100) 
+                                  : 0;
+                                const tierExhausted = tier.remaining === 0 && tier.quota > 0;
+                                const tierLow = tier.remaining > 0 && tier.remaining <= 1;
+
+                                return (
                                   <div 
                                     key={tier.tierId}
-                                    className="glass rounded-xl p-4"
-                                    data-testid={`tier-usage-${sub.id}-${i}`}
+                                    className={`glass rounded-xl p-4 ${
+                                      tierExhausted ? "border border-red-500/30" : tierLow ? "border border-yellow-500/30" : ""
+                                    }`}
+                                    data-testid={`tier-quota-${sub.id}-${tier.tierId}`}
                                   >
-                                    <div className="flex items-center gap-3 mb-3">
-                                      <div className="p-2 rounded-lg bg-primary/20">
-                                        <Package className="w-4 h-4 text-primary" />
-                                      </div>
-                                      <span className="text-white font-medium">{tier.tierName}</span>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4 text-sm">
-                                      <div>
-                                        <p className="text-muted-foreground">المناسبات</p>
-                                        <p className="text-white font-bold">{tier.eventCount}</p>
-                                      </div>
-                                      <div>
-                                        <p className="text-muted-foreground">الضيوف</p>
-                                        <p className="text-white font-bold">{tier.guestCount}</p>
+                                    <div className="flex items-center justify-between mb-3">
+                                      <div className="flex items-center gap-3">
+                                        <div className={`p-2 rounded-lg ${
+                                          tierExhausted ? "bg-red-500/20" : tierLow ? "bg-yellow-500/20" : "bg-primary/20"
+                                        }`}>
+                                          <Package className={`w-4 h-4 ${
+                                            tierExhausted ? "text-red-400" : tierLow ? "text-yellow-400" : "text-primary"
+                                          }`} />
+                                        </div>
+                                        <span className="text-white font-medium text-sm">{tier.tierName}</span>
                                       </div>
                                     </div>
+
+                                    {isEditing ? (
+                                      <div className="space-y-3">
+                                        <div>
+                                          <label className="text-muted-foreground text-xs block mb-1">الحصة</label>
+                                          <Input
+                                            type="number"
+                                            value={editQuotas[tier.tierId] || 0}
+                                            onChange={(e) => setEditQuotas({
+                                              ...editQuotas,
+                                              [tier.tierId]: parseInt(e.target.value) || 0
+                                            })}
+                                            className="h-9"
+                                            min={0}
+                                            max={100}
+                                            data-testid={`input-tier-quota-${sub.id}-${tier.tierId}`}
+                                          />
+                                        </div>
+                                        <div className="text-xs text-muted-foreground">
+                                          المستخدم حالياً: {tier.eventCount}
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <div className="grid grid-cols-3 gap-2 text-sm mb-3">
+                                          <div>
+                                            <p className="text-muted-foreground text-xs">الحصة</p>
+                                            <p className="text-white font-bold">{tier.quota}</p>
+                                          </div>
+                                          <div>
+                                            <p className="text-muted-foreground text-xs">المستخدم</p>
+                                            <p className="text-white font-bold">{tier.eventCount}</p>
+                                          </div>
+                                          <div>
+                                            <p className="text-muted-foreground text-xs">المتبقي</p>
+                                            <p className={`font-bold ${
+                                              tierExhausted ? "text-red-400" : tierLow ? "text-yellow-400" : "text-green-400"
+                                            }`}>{tier.remaining}</p>
+                                          </div>
+                                        </div>
+                                        <Progress 
+                                          value={tierUsagePercent} 
+                                          className={`h-1.5 ${
+                                            tierExhausted ? "[&>div]:bg-red-500" : tierLow ? "[&>div]:bg-yellow-500" : ""
+                                          }`}
+                                        />
+                                        <p className="text-xs text-muted-foreground mt-2">
+                                          {tier.guestCount} ضيف
+                                        </p>
+                                      </>
+                                    )}
                                   </div>
-                                ))}
-                              </div>
-                            )}
+                                );
+                              })}
+                            </div>
                           </div>
                         </motion.div>
                       )}

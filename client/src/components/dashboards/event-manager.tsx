@@ -9,11 +9,20 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import type { Event } from "@shared/schema";
 
+interface TierQuotaInfo {
+  tierId: string;
+  tierName: string;
+  quota: number;
+  used: number;
+  remaining: number;
+}
+
 interface QuotaInfo {
   hasQuota: boolean;
   totalQuota: number;
   usedQuota: number;
   remainingQuota: number;
+  tierQuotas?: TierQuotaInfo[];
 }
 
 export function EventManagerDashboard() {
@@ -61,10 +70,10 @@ export function EventManagerDashboard() {
         </Link>
       </div>
 
-      {/* Quota Info Card */}
+      {/* Quota Info Card with Tier Details */}
       {quotaInfo?.hasQuota && (
         <Card className={`glass-card border-white/10 ${isExhausted ? "border-red-500/50" : isLowQuota ? "border-yellow-500/50" : ""}`} data-testid="card-quota-info">
-          <CardContent className="p-4">
+          <CardContent className="p-4 space-y-4">
             <div className="flex items-center gap-4">
               <div className={`p-3 rounded-xl ${isExhausted ? "bg-red-500/20" : isLowQuota ? "bg-yellow-500/20" : "gradient-primary"}`}>
                 {isExhausted ? (
@@ -94,6 +103,37 @@ export function EventManagerDashboard() {
                 </p>
               </div>
             </div>
+
+            {/* Tier-specific quotas */}
+            {quotaInfo.tierQuotas && quotaInfo.tierQuotas.length > 0 && (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 pt-3 border-t border-white/10">
+                {quotaInfo.tierQuotas.filter(t => t.quota > 0).map((tier) => {
+                  const tierPercent = tier.quota > 0 ? Math.round((tier.used / tier.quota) * 100) : 0;
+                  const tierExhausted = tier.remaining === 0;
+                  const tierLow = tier.remaining > 0 && tier.remaining <= 1;
+                  
+                  return (
+                    <div 
+                      key={tier.tierId}
+                      className={`glass rounded-lg p-3 ${tierExhausted ? "border border-red-500/30" : tierLow ? "border border-yellow-500/30" : ""}`}
+                      data-testid={`tier-quota-${tier.tierId}`}
+                    >
+                      <p className="text-xs text-muted-foreground mb-1 truncate">{tier.tierName}</p>
+                      <div className="flex items-baseline gap-1">
+                        <span className={`text-lg font-bold ${tierExhausted ? "text-red-400" : tierLow ? "text-yellow-400" : "text-white"}`}>
+                          {tier.remaining}
+                        </span>
+                        <span className="text-xs text-muted-foreground">/{tier.quota}</span>
+                      </div>
+                      <Progress 
+                        value={tierPercent} 
+                        className={`h-1 mt-2 ${tierExhausted ? "[&>div]:bg-red-500" : tierLow ? "[&>div]:bg-yellow-500" : ""}`}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

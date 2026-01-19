@@ -373,17 +373,6 @@ export async function registerRoutes(
     try {
       const user = (req as any).user;
 
-      // Check quota for event managers
-      if (user.role === "event_manager") {
-        const eventCount = await storage.getEventCountByManager(user.id);
-        const quota = user.eventQuota || 0;
-        if (eventCount >= quota) {
-          return res.status(403).json({ 
-            error: `لقد وصلت للحد الأقصى من المناسبات (${quota}). تواصل مع مالك النظام لزيادة حصتك.` 
-          });
-        }
-      }
-
       // Validate capacity tier for event managers
       if (user.role === "event_manager" && !req.body.capacityTierId) {
         return res.status(400).json({ error: "يجب اختيار باقة سعة المناسبة" });
@@ -394,6 +383,26 @@ export async function registerRoutes(
         const tier = await storage.getCapacityTier(req.body.capacityTierId);
         if (!tier || !tier.isActive) {
           return res.status(400).json({ error: "باقة السعة غير صالحة" });
+        }
+        
+        // Check tier-specific quota for event managers
+        if (user.role === "event_manager") {
+          const userTierQuotas = await storage.getUserTierQuotas(user.id);
+          const tierQuota = userTierQuotas.find(q => String(q.capacityTierId) === String(req.body.capacityTierId));
+          const quota = tierQuota?.quota || 0;
+          
+          if (quota === 0) {
+            return res.status(403).json({ 
+              error: `ليس لديك صلاحية إنشاء مناسبات من باقة "${tier.name}". تواصل مع مالك النظام.` 
+            });
+          }
+          
+          const tierEventCount = await storage.getEventCountByManagerAndTier(user.id, req.body.capacityTierId);
+          if (tierEventCount >= quota) {
+            return res.status(403).json({ 
+              error: `لقد وصلت للحد الأقصى من باقة "${tier.name}" (${quota}). تواصل مع مالك النظام لزيادة حصتك.` 
+            });
+          }
         }
       }
 
@@ -1685,7 +1694,7 @@ export async function registerRoutes(
     }
   });
 
-  // Event Manager Quota Info
+  // Event Manager Quota Info with tier details
   app.get("/api/quota/info", requireRole("event_manager", "admin", "super_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
@@ -1694,14 +1703,36 @@ export async function registerRoutes(
         return res.json({ hasQuota: false });
       }
       
-      const eventCount = await storage.getEventCountByManager(user.id);
-      const quota = user.eventQuota || 0;
+      // Get user tier quotas
+      const userTierQuotas = await storage.getUserTierQuotas(user.id);
+      const capacityTiers = await storage.getCapacityTiers();
+      
+      // Build tier quotas with usage info
+      const tierQuotasInfo = await Promise.all(
+        capacityTiers.filter(t => t.isActive).map(async (tier) => {
+          const tierQuota = userTierQuotas.find(q => String(q.capacityTierId) === String(tier.id));
+          const quota = tierQuota?.quota || 0;
+          const used = await storage.getEventCountByManagerAndTier(user.id, tier.id);
+          return {
+            tierId: tier.id,
+            tierName: tier.name,
+            quota,
+            used,
+            remaining: Math.max(0, quota - used),
+          };
+        })
+      );
+      
+      // Calculate totals
+      const totalQuota = tierQuotasInfo.reduce((sum, t) => sum + t.quota, 0);
+      const totalUsed = tierQuotasInfo.reduce((sum, t) => sum + t.used, 0);
       
       res.json({
-        hasQuota: true,
-        totalQuota: quota,
-        usedQuota: eventCount,
-        remainingQuota: Math.max(0, quota - eventCount),
+        hasQuota: totalQuota > 0,
+        totalQuota,
+        usedQuota: totalUsed,
+        remainingQuota: Math.max(0, totalQuota - totalUsed),
+        tierQuotas: tierQuotasInfo,
       });
     } catch (error) {
       res.status(500).json({ error: "خطأ في جلب معلومات الحصة" });
@@ -1718,7 +1749,15 @@ export async function registerRoutes(
         eventManagers.map(async (manager) => {
           const events = await storage.getEventsByManager(manager.id);
           const eventCount = events.length;
-          const quota = manager.eventQuota || 0;
+          
+          // Get per-tier quotas for this manager
+          const userTierQuotas = await storage.getUserTierQuotas(manager.id);
+          
+          // Build tier quotas map
+          const tierQuotasMap: Record<string, number> = {};
+          for (const q of userTierQuotas) {
+            tierQuotasMap[String(q.capacityTierId)] = q.quota;
+          }
           
           // Count events by capacity tier
           const tierUsage: Record<string, { count: number; guests: number }> = {};
@@ -1738,27 +1777,37 @@ export async function registerRoutes(
             tierUsage[tierId].guests += guestCount;
           }
           
-          // Map tier IDs to names - ensure consistent string comparison
-          const tierDetails = Object.entries(tierUsage).map(([tierId, usage]) => {
-            const tier = capacityTiers.find(t => String(t.id) === tierId);
-            return {
-              tierId,
-              tierName: tier?.name || "بدون باقة",
-              eventCount: usage.count,
-              guestCount: usage.guests,
-            };
-          });
+          // Build tier details with quotas for all active tiers
+          const tierDetails = capacityTiers
+            .filter(t => t.isActive)
+            .map(tier => {
+              const tierId = String(tier.id);
+              const usage = tierUsage[tierId] || { count: 0, guests: 0 };
+              const quota = tierQuotasMap[tierId] || 0;
+              return {
+                tierId,
+                tierName: tier.name,
+                quota,
+                eventCount: usage.count,
+                guestCount: usage.guests,
+                remaining: Math.max(0, quota - usage.count),
+              };
+            });
+          
+          // Calculate total quota and usage from tier quotas
+          const totalTierQuota = tierDetails.reduce((sum, t) => sum + t.quota, 0);
+          const totalTierUsed = tierDetails.reduce((sum, t) => sum + t.eventCount, 0);
           
           return {
             id: manager.id,
             name: manager.name,
             username: manager.username,
             isActive: manager.isActive,
-            eventQuota: quota,
-            eventsUsed: eventCount,
-            eventsRemaining: Math.max(0, quota - eventCount),
+            totalQuota: totalTierQuota,
+            eventsUsed: totalTierUsed,
+            eventsRemaining: Math.max(0, totalTierQuota - totalTierUsed),
             totalGuests,
-            tierUsage: tierDetails,
+            tierQuotas: tierDetails,
             createdAt: manager.createdAt,
           };
         })
@@ -1770,38 +1819,59 @@ export async function registerRoutes(
     }
   });
 
-  // Update event manager quota
-  const quotaUpdateSchema = z.object({
-    eventQuota: z.number().int().min(0, "الحصة يجب أن تكون رقم صحيح موجب").max(1000, "الحد الأقصى للحصة هو 1000"),
+  // Update event manager tier quotas
+  const tierQuotaSchema = z.object({
+    tierId: z.string(),
+    quota: z.number().int().min(0, "الحصة يجب أن تكون رقم صحيح موجب").max(100, "الحد الأقصى للحصة لكل باقة هو 100"),
   });
   
-  app.patch("/api/subscriptions/:id/quota", requireRole("super_admin"), async (req, res) => {
+  const tierQuotasUpdateSchema = z.object({
+    tierQuotas: z.array(tierQuotaSchema),
+  });
+  
+  app.patch("/api/subscriptions/:id/tier-quotas", requireRole("super_admin"), async (req, res) => {
     try {
       const { id } = req.params;
       
-      const parseResult = quotaUpdateSchema.safeParse(req.body);
+      const parseResult = tierQuotasUpdateSchema.safeParse(req.body);
       if (!parseResult.success) {
         return res.status(400).json({ error: parseResult.error.errors[0]?.message || "بيانات غير صالحة" });
       }
       
-      const { eventQuota } = parseResult.data;
+      const { tierQuotas } = parseResult.data;
       
       const user = await storage.getUser(id);
       if (!user || user.role !== "event_manager") {
         return res.status(404).json({ error: "مدير المناسبات غير موجود" });
       }
       
-      const updated = await storage.updateUser(id, { eventQuota });
+      // Validate that all tier IDs exist
+      const allTiers = await storage.getCapacityTiers();
+      const validTierIds = new Set(allTiers.map(t => String(t.id)));
+      
+      for (const tq of tierQuotas) {
+        if (!validTierIds.has(String(tq.tierId))) {
+          return res.status(400).json({ error: `باقة السعة غير موجودة: ${tq.tierId}` });
+        }
+      }
+      
+      // Update each tier quota
+      for (const tq of tierQuotas) {
+        await storage.setUserTierQuota(id, tq.tierId, tq.quota);
+      }
+      
+      // Calculate total quota for audit log
+      const totalQuota = tierQuotas.reduce((sum, tq) => sum + tq.quota, 0);
       
       await storage.createAuditLog({
         userId: (req as any).user.id,
-        action: "update_quota",
-        details: `تم تحديث حصة ${user.name} إلى ${eventQuota} مناسبة`,
+        action: "update_tier_quotas",
+        details: `تم تحديث حصص الباقات لـ ${user.name} (إجمالي: ${totalQuota} مناسبة)`,
       });
       
-      res.json(updated);
+      res.json({ success: true, message: "تم تحديث الحصص بنجاح" });
     } catch (error) {
-      res.status(500).json({ error: "خطأ في تحديث الحصة" });
+      res.status(500).json({ error: "خطأ في تحديث الحصص" });
     }
   });
 

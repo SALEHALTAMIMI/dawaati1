@@ -98,6 +98,16 @@ export const capacityTiers = pgTable("capacity_tiers", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// User capacity tier quotas - how many events of each tier a user can create
+export const userTierQuotas = pgTable("user_tier_quotas", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  capacityTierId: varchar("capacity_tier_id").notNull(),
+  quota: integer("quota").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ one, many }) => ({
   createdBy: one(users, {
@@ -195,6 +205,12 @@ export const insertCapacityTierSchema = createInsertSchema(capacityTiers).omit({
   createdAt: true,
 });
 
+export const insertUserTierQuotaSchema = createInsertSchema(userTierQuotas).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -216,6 +232,9 @@ export type SiteSettings = typeof siteSettings.$inferSelect;
 
 export type InsertCapacityTier = z.infer<typeof insertCapacityTierSchema>;
 export type CapacityTier = typeof capacityTiers.$inferSelect;
+
+export type InsertUserTierQuota = z.infer<typeof insertUserTierQuotaSchema>;
+export type UserTierQuota = typeof userTierQuotas.$inferSelect;
 
 // Login schema
 export const loginSchema = z.object({

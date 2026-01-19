@@ -6,6 +6,7 @@ import {
   auditLogs,
   siteSettings,
   capacityTiers,
+  userTierQuotas,
   type User,
   type InsertUser,
   type Event,
@@ -20,6 +21,8 @@ import {
   type InsertSiteSettings,
   type CapacityTier,
   type InsertCapacityTier,
+  type UserTierQuota,
+  type InsertUserTierQuota,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
@@ -85,6 +88,12 @@ export interface IStorage {
   updateCapacityTier(id: string, data: Partial<InsertCapacityTier>): Promise<CapacityTier | undefined>;
   deleteCapacityTier(id: string): Promise<void>;
   getEventCountByManager(managerId: string): Promise<number>;
+
+  // User Tier Quotas
+  getUserTierQuotas(userId: string): Promise<UserTierQuota[]>;
+  setUserTierQuota(userId: string, capacityTierId: string, quota: number): Promise<UserTierQuota>;
+  deleteUserTierQuotas(userId: string): Promise<void>;
+  getEventCountByManagerAndTier(managerId: string, capacityTierId: string): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -838,6 +847,49 @@ export class DatabaseStorage implements IStorage {
 
   async getEventCountByManager(managerId: string): Promise<number> {
     const managerEvents = await db.select().from(events).where(eq(events.eventManagerId, managerId));
+    return managerEvents.length;
+  }
+
+  // User Tier Quotas
+  async getUserTierQuotas(userId: string): Promise<UserTierQuota[]> {
+    return db.select().from(userTierQuotas).where(eq(userTierQuotas.userId, userId));
+  }
+
+  async setUserTierQuota(userId: string, capacityTierId: string, quota: number): Promise<UserTierQuota> {
+    // Try to update existing record first
+    const existing = await db.select().from(userTierQuotas)
+      .where(and(
+        eq(userTierQuotas.userId, userId),
+        eq(userTierQuotas.capacityTierId, capacityTierId)
+      ));
+    
+    if (existing.length > 0) {
+      const [updated] = await db.update(userTierQuotas)
+        .set({ quota, updatedAt: new Date() })
+        .where(and(
+          eq(userTierQuotas.userId, userId),
+          eq(userTierQuotas.capacityTierId, capacityTierId)
+        ))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(userTierQuotas)
+        .values({ userId, capacityTierId, quota })
+        .returning();
+      return created;
+    }
+  }
+
+  async deleteUserTierQuotas(userId: string): Promise<void> {
+    await db.delete(userTierQuotas).where(eq(userTierQuotas.userId, userId));
+  }
+
+  async getEventCountByManagerAndTier(managerId: string, capacityTierId: string): Promise<number> {
+    const managerEvents = await db.select().from(events)
+      .where(and(
+        eq(events.eventManagerId, managerId),
+        eq(events.capacityTierId, capacityTierId)
+      ));
     return managerEvents.length;
   }
 }

@@ -48,12 +48,13 @@ A comprehensive Arabic RTL Event Access Management Web Application (SaaS) design
 - Excel export with RTL Arabic formatting
 - Site settings page for super_admin to manage social media links
 - Social media icons on login page (WhatsApp, Instagram, Facebook, X, LinkedIn)
-- Quota/Subscription System:
+- Per-Tier Quota/Subscription System:
   - Super admin manages capacity tiers (باقات السعة) with guest limits
-  - Event managers have event creation quota (set by super_admin)
-  - Each event requires capacity tier selection
-  - Guest addition enforced against tier limits
-  - Dashboard shows quota progress for event managers
+  - **Per-tier quotas**: Super admin assigns specific quotas per capacity tier to each event manager (e.g., 3 small tier events, 5 medium tier events)
+  - `user_tier_quotas` junction table stores userId, capacityTierId, and quota
+  - Event creation validates against tier-specific quotas (blocks if tier quota exhausted or 0)
+  - Dashboard shows tier-specific quota breakdown with usage progress
+  - Subscriptions page allows editing per-tier quotas with inline UI
 
 ## Capacity Tiers (Default)
 - باقة صغيرة (0-50 guests)
@@ -73,6 +74,7 @@ A comprehensive Arabic RTL Event Access Management Web Application (SaaS) design
 - `event_organizers` - Event-organizer assignments
 - `audit_logs` - Action tracking
 - `capacity_tiers` - Capacity tier definitions for events
+- `user_tier_quotas` - Per-tier quotas for event managers (junction table: userId, capacityTierId, quota)
 
 ## API Endpoints
 - `/api/auth/*` - Authentication (login, logout, me)
