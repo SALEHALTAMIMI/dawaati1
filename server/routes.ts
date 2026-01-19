@@ -373,6 +373,30 @@ export async function registerRoutes(
     try {
       const user = (req as any).user;
 
+      // Check quota for event managers
+      if (user.role === "event_manager") {
+        const eventCount = await storage.getEventCountByManager(user.id);
+        const quota = user.eventQuota || 0;
+        if (eventCount >= quota) {
+          return res.status(403).json({ 
+            error: `لقد وصلت للحد الأقصى من المناسبات (${quota}). تواصل مع مالك النظام لزيادة حصتك.` 
+          });
+        }
+      }
+
+      // Validate capacity tier for event managers
+      if (user.role === "event_manager" && !req.body.capacityTierId) {
+        return res.status(400).json({ error: "يجب اختيار باقة سعة المناسبة" });
+      }
+
+      // If capacity tier provided, verify it exists
+      if (req.body.capacityTierId) {
+        const tier = await storage.getCapacityTier(req.body.capacityTierId);
+        if (!tier || !tier.isActive) {
+          return res.status(400).json({ error: "باقة السعة غير صالحة" });
+        }
+      }
+
       // Parse date string to Date object
       const eventData = {
         ...req.body,
@@ -489,7 +513,23 @@ export async function registerRoutes(
       const sheet = workbook.Sheets[sheetName];
       const data = XLSX.utils.sheet_to_json(sheet) as Record<string, any>[];
 
-      const guestsToCreate = data.map((row) => ({
+      // Check capacity limit if event has a capacity tier
+      let maxAllowedGuests = Infinity;
+      if (event.capacityTierId) {
+        const tier = await storage.getCapacityTier(event.capacityTierId);
+        if (tier && !tier.isUnlimited && tier.maxGuests) {
+          const currentGuests = await storage.getGuestsByEvent(req.params.id);
+          const remainingCapacity = tier.maxGuests - currentGuests.length;
+          if (remainingCapacity <= 0) {
+            return res.status(403).json({ 
+              error: `لقد وصلت للحد الأقصى من الضيوف لهذه المناسبة (${tier.maxGuests}). يمكنك ترقية باقة السعة.` 
+            });
+          }
+          maxAllowedGuests = remainingCapacity;
+        }
+      }
+
+      let guestsToCreate = data.map((row) => ({
         eventId: req.params.id,
         name: String(row["الاسم"] || row["Name"] || row["name"] || ""),
         phone: String(row["الجوال"] || row["Phone"] || row["phone"] || ""),
@@ -498,6 +538,14 @@ export async function registerRoutes(
         notes: String(row["ملاحظات"] || row["Notes"] || ""),
         qrCode: generateAccessCode(),
       }));
+
+      // Limit guests to remaining capacity
+      let limitedMessage = "";
+      if (guestsToCreate.length > maxAllowedGuests) {
+        const originalCount = guestsToCreate.length;
+        guestsToCreate = guestsToCreate.slice(0, maxAllowedGuests);
+        limitedMessage = ` (تم إضافة ${guestsToCreate.length} فقط من ${originalCount} بسبب حد السعة)`;
+      }
 
       const createdGuests = await storage.createGuests(guestsToCreate);
 
@@ -526,6 +574,19 @@ export async function registerRoutes(
       }
       if (!canBypassOwnership(user.role) && event.eventManagerId !== user.id) {
         return res.status(403).json({ error: "غير مسموح" });
+      }
+
+      // Check capacity limit if event has a capacity tier
+      if (event.capacityTierId) {
+        const tier = await storage.getCapacityTier(event.capacityTierId);
+        if (tier && !tier.isUnlimited && tier.maxGuests) {
+          const currentGuests = await storage.getGuestsByEvent(req.params.id);
+          if (currentGuests.length >= tier.maxGuests) {
+            return res.status(403).json({ 
+              error: `لقد وصلت للحد الأقصى من الضيوف لهذه المناسبة (${tier.maxGuests}). يمكنك ترقية باقة السعة.` 
+            });
+          }
+        }
       }
 
       const { name, phone, category, companions, notes } = req.body;
@@ -1547,6 +1608,103 @@ export async function registerRoutes(
       res.json(settings);
     } catch (error) {
       res.status(500).json({ error: "خطأ في تحديث الإعدادات" });
+    }
+  });
+
+  // Capacity Tiers - Get all (public for event creation form)
+  app.get("/api/capacity-tiers", requireAuth, async (req, res) => {
+    try {
+      const tiers = await storage.getCapacityTiers();
+      res.json(tiers.filter(t => t.isActive));
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في جلب باقات السعة" });
+    }
+  });
+
+  // Capacity Tiers - Get all including inactive (super_admin only)
+  app.get("/api/capacity-tiers/all", requireRole("super_admin"), async (req, res) => {
+    try {
+      const tiers = await storage.getCapacityTiers();
+      res.json(tiers);
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في جلب باقات السعة" });
+    }
+  });
+
+  // Capacity Tiers - Create (super_admin only)
+  app.post("/api/capacity-tiers", requireRole("super_admin"), async (req, res) => {
+    try {
+      const tierSchema = z.object({
+        name: z.string().min(1, "اسم الباقة مطلوب"),
+        minGuests: z.number().min(0).default(0),
+        maxGuests: z.number().nullable().optional(),
+        isUnlimited: z.boolean().default(false),
+        isActive: z.boolean().default(true),
+        sortOrder: z.number().default(0),
+      });
+      
+      const parseResult = tierSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ error: "بيانات غير صالحة" });
+      }
+      
+      const tier = await storage.createCapacityTier(parseResult.data);
+      res.json(tier);
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في إنشاء باقة السعة" });
+    }
+  });
+
+  // Capacity Tiers - Update (super_admin only)
+  app.patch("/api/capacity-tiers/:id", requireRole("super_admin"), async (req, res) => {
+    try {
+      const tier = await storage.getCapacityTier(req.params.id);
+      if (!tier) {
+        return res.status(404).json({ error: "الباقة غير موجودة" });
+      }
+      
+      const updated = await storage.updateCapacityTier(req.params.id, req.body);
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في تحديث باقة السعة" });
+    }
+  });
+
+  // Capacity Tiers - Delete (super_admin only)
+  app.delete("/api/capacity-tiers/:id", requireRole("super_admin"), async (req, res) => {
+    try {
+      const tier = await storage.getCapacityTier(req.params.id);
+      if (!tier) {
+        return res.status(404).json({ error: "الباقة غير موجودة" });
+      }
+      
+      await storage.deleteCapacityTier(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في حذف باقة السعة" });
+    }
+  });
+
+  // Event Manager Quota Info
+  app.get("/api/quota/info", requireRole("event_manager", "admin", "super_admin"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      
+      if (user.role !== "event_manager") {
+        return res.json({ hasQuota: false });
+      }
+      
+      const eventCount = await storage.getEventCountByManager(user.id);
+      const quota = user.eventQuota || 0;
+      
+      res.json({
+        hasQuota: true,
+        totalQuota: quota,
+        usedQuota: eventCount,
+        remainingQuota: Math.max(0, quota - eventCount),
+      });
+    } catch (error) {
+      res.status(500).json({ error: "خطأ في جلب معلومات الحصة" });
     }
   });
 

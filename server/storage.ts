@@ -5,6 +5,7 @@ import {
   eventOrganizers,
   auditLogs,
   siteSettings,
+  capacityTiers,
   type User,
   type InsertUser,
   type Event,
@@ -17,6 +18,8 @@ import {
   type InsertAuditLog,
   type SiteSettings,
   type InsertSiteSettings,
+  type CapacityTier,
+  type InsertCapacityTier,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
@@ -74,6 +77,14 @@ export interface IStorage {
   // Site Settings
   getSiteSettings(): Promise<SiteSettings | undefined>;
   updateSiteSettings(data: InsertSiteSettings): Promise<SiteSettings>;
+
+  // Capacity Tiers
+  getCapacityTiers(): Promise<CapacityTier[]>;
+  getCapacityTier(id: string): Promise<CapacityTier | undefined>;
+  createCapacityTier(tier: InsertCapacityTier): Promise<CapacityTier>;
+  updateCapacityTier(id: string, data: Partial<InsertCapacityTier>): Promise<CapacityTier | undefined>;
+  deleteCapacityTier(id: string): Promise<void>;
+  getEventCountByManager(managerId: string): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -799,6 +810,35 @@ export class DatabaseStorage implements IStorage {
       const [created] = await db.insert(siteSettings).values(data).returning();
       return created;
     }
+  }
+
+  // Capacity Tiers
+  async getCapacityTiers(): Promise<CapacityTier[]> {
+    return db.select().from(capacityTiers).orderBy(capacityTiers.sortOrder);
+  }
+
+  async getCapacityTier(id: string): Promise<CapacityTier | undefined> {
+    const [tier] = await db.select().from(capacityTiers).where(eq(capacityTiers.id, id));
+    return tier || undefined;
+  }
+
+  async createCapacityTier(tier: InsertCapacityTier): Promise<CapacityTier> {
+    const [created] = await db.insert(capacityTiers).values(tier).returning();
+    return created;
+  }
+
+  async updateCapacityTier(id: string, data: Partial<InsertCapacityTier>): Promise<CapacityTier | undefined> {
+    const [updated] = await db.update(capacityTiers).set(data).where(eq(capacityTiers.id, id)).returning();
+    return updated || undefined;
+  }
+
+  async deleteCapacityTier(id: string): Promise<void> {
+    await db.delete(capacityTiers).where(eq(capacityTiers.id, id));
+  }
+
+  async getEventCountByManager(managerId: string): Promise<number> {
+    const managerEvents = await db.select().from(events).where(eq(events.eventManagerId, managerId));
+    return managerEvents.length;
   }
 }
 
