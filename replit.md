@@ -48,17 +48,31 @@ A comprehensive Arabic RTL Event Access Management Web Application (SaaS) design
 - Excel export with RTL Arabic formatting
 - Site settings page for super_admin to manage social media links
 - Social media icons on login page (WhatsApp, Instagram, Facebook, X, LinkedIn)
+- Quota/Subscription System:
+  - Super admin manages capacity tiers (باقات السعة) with guest limits
+  - Event managers have event creation quota (set by super_admin)
+  - Each event requires capacity tier selection
+  - Guest addition enforced against tier limits
+  - Dashboard shows quota progress for event managers
+
+## Capacity Tiers (Default)
+- باقة صغيرة (0-50 guests)
+- باقة متوسطة (51-100 guests)
+- باقة كبيرة (101-150 guests)
+- باقة ضخمة (151-300 guests)
+- باقة مفتوحة (unlimited)
 
 ## Default Credentials
 - **Super Admin:** username: `admin`, password: `admin123`
 - **Event Manager:** username: `manager`, password: `manager123`
 
 ## Database Schema
-- `users` - System users with role-based access
-- `events` - Event information
+- `users` - System users with role-based access (includes eventQuota for managers)
+- `events` - Event information (includes capacityTierId)
 - `guests` - Guest list with QR codes
 - `event_organizers` - Event-organizer assignments
 - `audit_logs` - Action tracking
+- `capacity_tiers` - Capacity tier definitions for events
 
 ## API Endpoints
 - `/api/auth/*` - Authentication (login, logout, me)
