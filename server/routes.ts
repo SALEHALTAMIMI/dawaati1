@@ -369,7 +369,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/events", requireRole("event_manager", "admin"), async (req, res) => {
+  app.post("/api/events", requireRole("event_manager", "admin", "super_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
 
@@ -401,7 +401,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/events/:id", requireRole("event_manager", "admin"), async (req, res) => {
+  app.patch("/api/events/:id", requireRole("event_manager", "admin", "super_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const event = await storage.getEvent(req.params.id);
@@ -427,7 +427,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/events/:id", requireRole("event_manager", "admin"), async (req, res) => {
+  app.delete("/api/events/:id", requireRole("event_manager", "admin", "super_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const event = await storage.getEvent(req.params.id);
@@ -468,7 +468,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/events/:id/upload-guests", requireRole("event_manager", "admin"), upload.single("file"), async (req, res) => {
+  app.post("/api/events/:id/upload-guests", requireRole("event_manager", "admin", "super_admin"), upload.single("file"), async (req, res) => {
     try {
       const user = (req as any).user;
       const event = await storage.getEvent(req.params.id);
@@ -516,7 +516,7 @@ export async function registerRoutes(
   });
 
   // Add single guest
-  app.post("/api/events/:id/guests", requireRole("event_manager", "admin"), async (req, res) => {
+  app.post("/api/events/:id/guests", requireRole("event_manager", "admin", "super_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const event = await storage.getEvent(req.params.id);
@@ -559,7 +559,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/guests/:id/check-in", requireRole("organizer", "event_manager", "admin"), async (req, res) => {
+  app.post("/api/guests/:id/check-in", requireRole("organizer", "event_manager", "admin", "super_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const guest = await storage.getGuest(req.params.id);
@@ -618,7 +618,7 @@ export async function registerRoutes(
   });
 
   // Get single guest
-  app.get("/api/guests/:id", requireRole("event_manager", "admin"), async (req, res) => {
+  app.get("/api/guests/:id", requireRole("event_manager", "admin", "super_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const guest = await storage.getGuest(req.params.id);
@@ -642,7 +642,7 @@ export async function registerRoutes(
   });
 
   // Update guest
-  app.patch("/api/guests/:id", requireRole("event_manager", "admin"), async (req, res) => {
+  app.patch("/api/guests/:id", requireRole("event_manager", "admin", "super_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const guest = await storage.getGuest(req.params.id);
@@ -683,7 +683,7 @@ export async function registerRoutes(
   });
 
   // Delete guest
-  app.delete("/api/guests/:id", requireRole("event_manager", "admin"), async (req, res) => {
+  app.delete("/api/guests/:id", requireRole("event_manager", "admin", "super_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const guest = await storage.getGuest(req.params.id);
@@ -717,7 +717,7 @@ export async function registerRoutes(
   });
 
   // Organizer events
-  app.get("/api/organizer/events", requireRole("organizer", "event_manager", "admin"), async (req, res) => {
+  app.get("/api/organizer/events", requireRole("organizer", "event_manager", "admin", "super_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
 
@@ -766,7 +766,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/events/:id/organizers", requireRole("event_manager", "admin"), async (req, res) => {
+  app.post("/api/events/:id/organizers", requireRole("event_manager", "admin", "super_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const event = await storage.getEvent(req.params.id);
@@ -798,7 +798,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/events/:id/organizers/:organizerId", requireRole("event_manager", "admin"), async (req, res) => {
+  app.delete("/api/events/:id/organizers/:organizerId", requireRole("event_manager", "admin", "super_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const event = await storage.getEvent(req.params.id);
@@ -856,7 +856,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/stats/event-manager", requireRole("event_manager", "admin"), async (req, res) => {
+  app.get("/api/stats/event-manager", requireRole("event_manager", "admin", "super_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const stats = await storage.getStats("event_manager", user.id);
@@ -877,7 +877,7 @@ export async function registerRoutes(
   });
 
   // Export guests to Excel with access codes
-  app.get("/api/events/:id/export-guests", requireRole("event_manager", "admin"), async (req, res) => {
+  app.get("/api/events/:id/export-guests", requireRole("event_manager", "admin", "super_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const event = await storage.getEvent(req.params.id);
@@ -949,7 +949,7 @@ export async function registerRoutes(
   });
 
   // Reports download endpoints
-  app.get("/api/events/:id/reports/:type", requireRole("event_manager", "admin"), async (req, res) => {
+  app.get("/api/events/:id/reports/:type", requireRole("event_manager", "admin", "super_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const reportType = req.params.type as "attendance" | "absence" | "audit";
@@ -1055,7 +1055,7 @@ export async function registerRoutes(
   });
 
   // Check-in by text code (QR scanner reads the code directly)
-  app.post("/api/check-in/code", requireRole("organizer", "event_manager", "admin"), async (req, res) => {
+  app.post("/api/check-in/code", requireRole("organizer", "event_manager", "admin", "super_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const { code, eventId } = req.body;
@@ -1123,7 +1123,7 @@ export async function registerRoutes(
   });
 
   // Verify QR code (for check-in by scanning)
-  app.post("/api/check-in/verify-qr", requireRole("organizer", "event_manager", "admin"), async (req, res) => {
+  app.post("/api/check-in/verify-qr", requireRole("organizer", "event_manager", "admin", "super_admin"), async (req, res) => {
     try {
       const user = (req as any).user;
       const { qrData } = req.body;
