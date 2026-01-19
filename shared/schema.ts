@@ -35,6 +35,7 @@ export const events = pgTable("events", {
   startTime: text("start_time"),
   endTime: text("end_time"),
   eventManagerId: varchar("event_manager_id").notNull(),
+  capacityTierId: varchar("capacity_tier_id"),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -83,6 +84,18 @@ export const siteSettings = pgTable("site_settings", {
   twitter: text("twitter"),
   linkedin: text("linkedin"),
   updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Capacity tiers table for event packages
+export const capacityTiers = pgTable("capacity_tiers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  minGuests: integer("min_guests").notNull().default(0),
+  maxGuests: integer("max_guests"),
+  isUnlimited: boolean("is_unlimited").default(false),
+  isActive: boolean("is_active").default(true),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 // Relations
@@ -177,6 +190,11 @@ export const insertSiteSettingsSchema = createInsertSchema(siteSettings).omit({
   updatedAt: true,
 });
 
+export const insertCapacityTierSchema = createInsertSchema(capacityTiers).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -195,6 +213,9 @@ export type AuditLog = typeof auditLogs.$inferSelect;
 
 export type InsertSiteSettings = z.infer<typeof insertSiteSettingsSchema>;
 export type SiteSettings = typeof siteSettings.$inferSelect;
+
+export type InsertCapacityTier = z.infer<typeof insertCapacityTierSchema>;
+export type CapacityTier = typeof capacityTiers.$inferSelect;
 
 // Login schema
 export const loginSchema = z.object({
